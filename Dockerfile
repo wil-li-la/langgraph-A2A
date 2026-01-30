@@ -2,7 +2,7 @@
 # Multi-stage build for optimized image size
 
 # Build stage
-FROM python:3.12-slim as builder
+FROM python:3.12-slim AS builder
 
 # Set working directory
 WORKDIR /app
@@ -46,17 +46,19 @@ RUN useradd -m -u 1000 appuser && \
 # Switch to non-root user
 USER appuser
 
-# Expose port
-EXPOSE 9999
+# Default port (can be overridden by PORT env var)
+ENV PORT=9999
 
-# Health check
+# Expose port (documentation only, actual port from ENV)
+EXPOSE ${PORT}
+
+# Health check using the PORT env var
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:9999/agent-card || exit 1
+    CMD curl -f http://localhost:${PORT}/agent-card || exit 1
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-# Run the application
-# Use PORT env var for Zeabur compatibility, default to 9999 for local
-CMD sh -c "python -m app --host 0.0.0.0 --port ${PORT:-9999}"
+# Run the application using PORT env var
+CMD ["sh", "-c", "python -m app --host 0.0.0.0 --port ${PORT}"]

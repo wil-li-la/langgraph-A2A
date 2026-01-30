@@ -20,13 +20,18 @@ from a2a.types import (
     AgentCard,
     AgentSkill,
 )
-from dotenv import load_dotenv
+
+# Load .env file if it exists (for local development)
+# This won't fail if .env doesn't exist (production environments)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # Only loads if .env exists, otherwise does nothing
+except ImportError:
+    pass  # python-dotenv not installed, that's fine in production
 
 from app.agent import ConversationalAgent
 from app.agent_executor import ConversationalAgentExecutor
 
-
-load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -36,27 +41,49 @@ class MissingAPIKeyError(Exception):
     """Exception raised when required API key is missing."""
 
 
+def validate_environment():
+    """Validate required environment variables and log configuration."""
+    model_source = os.getenv('model_source', 'google')
+    port = os.getenv('PORT', '9999')
+    
+    # Log environment configuration for debugging
+    logger.info(f"Environment Configuration:")
+    logger.info(f"  - PORT: {port}")
+    logger.info(f"  - model_source: {model_source}")
+    logger.info(f"  - GOOGLE_API_KEY: {'[SET]' if os.getenv('GOOGLE_API_KEY') else '[NOT SET]'}")
+    logger.info(f"  - OPENAI_API_KEY: {'[SET]' if os.getenv('OPENAI_API_KEY') else '[NOT SET]'}")
+    
+    # Validate API key based on model source
+    if model_source == 'google':
+        if not os.getenv('GOOGLE_API_KEY'):
+            raise MissingAPIKeyError(
+                'GOOGLE_API_KEY environment variable not set.\n'
+                'For Railway/Zeabur: Set it in the dashboard under Variables.\n'
+                'For local: Create a .env file with GOOGLE_API_KEY=your_key'
+            )
+    else:
+        if not os.getenv('OPENAI_API_KEY'):
+            raise MissingAPIKeyError(
+                'OPENAI_API_KEY environment variable not set.\n'
+                'For Railway/Zeabur: Set it in the dashboard under Variables.\n'
+                'For local: Create a .env file with OPENAI_API_KEY=your_key'
+            )
+    
+    return model_source
+
+
 @click.command()
-@click.option('--host', 'host', default='localhost', help='Server host address')
-@click.option('--port', 'port', default=9999, help='Server port number')
+@click.option('--host', 'host', default='0.0.0.0', help='Server host address')
+@click.option('--port', 'port', default=None, type=int, help='Server port number')
 def main(host: str, port: int):
     """Start the LangGraph A2A agent server."""
     try:
-        # Validate environment variables
-        model_source = os.getenv('model_source', 'google')
+        # Use PORT env var if --port not specified (for Railway/Zeabur/Cloud Run)
+        if port is None:
+            port = int(os.getenv('PORT', '9999'))
         
-        if model_source == 'google':
-            if not os.getenv('GOOGLE_API_KEY'):
-                raise MissingAPIKeyError(
-                    'GOOGLE_API_KEY environment variable not set. '
-                    'Please set it in your .env file or environment.'
-                )
-        else:
-            if not os.getenv('OPENAI_API_KEY'):
-                raise MissingAPIKeyError(
-                    'OPENAI_API_KEY environment variable not set. '
-                    'Please set it in your .env file or environment.'
-                )
+        # Validate environment and log configuration
+        validate_environment()
         
         # Define agent capabilities
         capabilities = AgentCapabilities(

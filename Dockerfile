@@ -4,10 +4,9 @@
 # Build stage
 FROM python:3.12-slim AS builder
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install build dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
@@ -23,10 +22,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Runtime stage
 FROM python:3.12-slim
 
-# Set working directory
 WORKDIR /app
 
-# Install runtime dependencies only
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -43,22 +41,13 @@ COPY pyproject.toml ./
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app
 
-# Switch to non-root user
 USER appuser
 
-# Default port (can be overridden by PORT env var)
-ENV PORT=9999
-
-# Expose port (documentation only, actual port from ENV)
-EXPOSE ${PORT}
-
-# Health check using the PORT env var
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:${PORT}/agent-card || exit 1
-
-# Set environment variables
+# Environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-# Run the application using PORT env var
-CMD ["sh", "-c", "python -m app --host 0.0.0.0 --port ${PORT}"]
+# The app automatically uses PORT env var, defaults to 9999 if not set
+# No need to specify port here - the app handles it
+
+CMD ["python", "-m", "app"]

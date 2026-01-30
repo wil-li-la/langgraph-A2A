@@ -55,6 +55,53 @@ This project implements a general-purpose conversational agent that can:
    # OPENAI_API_KEY=your_api_key_here
    ```
 
+## Docker Deployment
+
+### Quick Start with Docker
+
+1. **Configure environment variables**:
+   ```bash
+   cp .env.example .env
+   # Edit .env and add your API key
+   ```
+
+2. **Build and run with Docker Compose**:
+   ```bash
+   docker-compose up -d
+   ```
+
+3. **View logs**:
+   ```bash
+   docker-compose logs -f
+   ```
+
+The agent will be available at `http://localhost:9999`
+
+### Manual Docker Build
+
+```bash
+# Build the image
+docker build -t langgraph-a2a-agent .
+
+# Run the container
+docker run -d \
+  --name langgraph-agent \
+  -p 9999:9999 \
+  -e model_source=google \
+  -e GOOGLE_API_KEY=your_api_key_here \
+  langgraph-a2a-agent
+```
+
+### Docker Features
+
+- ✅ Multi-stage build for optimized image size
+- ✅ Non-root user for security
+- ✅ Automatic health checks
+- ✅ Environment variable configuration
+- ✅ Production-ready setup
+
+See the [Docker Deployment Guide](./DOCKER.md) for advanced configuration and production deployment.
+
 ## Usage
 
 ### Starting the Server

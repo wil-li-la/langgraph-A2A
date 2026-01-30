@@ -58,4 +58,5 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
 # Run the application
-CMD ["python", "-m", "app", "--host", "0.0.0.0", "--port", "9999"]
+# Use PORT env var for Zeabur compatibility, default to 9999 for local
+CMD sh -c "python -m app --host 0.0.0.0 --port ${PORT:-9999}"

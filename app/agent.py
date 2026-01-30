@@ -80,7 +80,7 @@ class ConversationalAgent:
         model_source = os.getenv('model_source', 'google')
         
         if model_source == 'google':
-            self.model = ChatGoogleGenerativeAI(model='gemini-2.0-flash-exp')
+            self.model = ChatGoogleGenerativeAI(model='gemini-2.0-flash')
         else:
             self.model = ChatOpenAI(
                 model=os.getenv('TOOL_LLM_NAME', 'gpt-4'),

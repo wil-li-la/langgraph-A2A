@@ -2,10 +2,17 @@
 
 import operator
 from typing import Annotated, List, TypedDict
+import os
+import time
 
 from langgraph.graph import StateGraph, END
+import mlflow
 
 from app.healthcare.mock_data import MockDatabase, MockRobotActions, MockNLU
+
+# Configure MLflow
+mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "file:./mlruns"))
+mlflow.set_experiment("medication_delivery_agent")
 
 
 class AgentState(TypedDict):
@@ -333,48 +340,94 @@ class MedicationDeliveryAgent:
         Returns:
             Final state after workflow execution
         """
-        print(f"\n{'#'*60}")
-        print(f"# 給藥任務開始")
-        print(f"{'#'*60}")
-        
-        # Initialize state
-        initial_state = {
-            "instruction": instruction,
-            "patient_name": "",
-            "medication_name": "",
-            "current_location": "charging_dock",
-            "task_status": "initialized",
-            "target_detected": False,
-            "identity_verified": False,
-            "errors": [],
-            "history": []
-        }
-        
-        # Run workflow
-        final_state = self.app.invoke(initial_state)
-        
-        # Print summary
-        print(f"\n{'#'*60}")
-        print(f"# 任務執行摘要")
-        print(f"{'#'*60}")
-        print(f"\n最終狀態: {final_state['task_status']}")
-        print(f"\n執行歷程:")
-        for entry in final_state.get('history', []):
-            print(f"  {entry}")
-        
-        if final_state.get('errors'):
-            print(f"\n錯誤記錄:")
-            for error in final_state['errors']:
-                print(f"  ✗ {error}")
-        
-        if final_state['task_status'] == 'delivered':
-            print(f"\n✅ 給藥任務完成！")
-        else:
-            print(f"\n❌ 給藥任務失敗")
-        
-        print(f"\n{'#'*60}\n")
-        
-        return final_state
+        # Start MLflow run for tracking
+        with mlflow.start_run():
+            start_time = time.time()
+            
+            # Log input parameters
+            mlflow.log_param("instruction", instruction)
+            mlflow.set_tag("agent_type", "medication_delivery")
+            mlflow.set_tag("robot_model", "HelloRobot_Stretch")
+            
+            print(f"\n{'#'*60}")
+            print(f"# 給藥任務開始")
+            print(f"{'#'*60}")
+            
+            # Initialize state
+            initial_state = {
+                "instruction": instruction,
+                "patient_name": "",
+                "medication_name": "",
+                "current_location": "charging_dock",
+                "task_status": "initialized",
+                "target_detected": False,
+                "identity_verified": False,
+                "errors": [],
+                "history": []
+            }
+            
+            # Run workflow
+            final_state = self.app.invoke(initial_state)
+            
+            # Calculate execution time
+            execution_time = time.time() - start_time
+            
+            # Log execution details
+            mlflow.log_params({
+                "patient_name": final_state.get('patient_name', 'N/A'),
+                "medication_name": final_state.get('medication_name', 'N/A'),
+                "final_location": final_state.get('current_location', 'unknown')
+            })
+            
+            # Log metrics
+            task_success = 1 if final_state['task_status'] == 'delivered' else 0
+            mlflow.log_metrics({
+                "task_success": task_success,
+                "execution_time_seconds": execution_time,
+                "error_count": len(final_state.get('errors', [])),
+                "workflow_steps": len(final_state.get('history', [])),
+                "target_detected": int(final_state.get('target_detected', False)),
+                "identity_verified": int(final_state.get('identity_verified', False))
+            })
+            
+            # Log final status as tag
+            mlflow.set_tag("final_status", final_state['task_status'])
+            
+            # Save final state as artifact
+            import json
+            artifact_path = "final_state.json"
+            with open(artifact_path, "w") as f:
+                json.dump(final_state, f, indent=2, ensure_ascii=False)
+            mlflow.log_artifact(artifact_path)
+            
+            # Clean up temporary file
+            if os.path.exists(artifact_path):
+                os.remove(artifact_path)
+            
+            # Print summary
+            print(f"\n{'#'*60}")
+            print(f"# 任務執行摘要")
+            print(f"{'#'*60}")
+            print(f"\n最終狀態: {final_state['task_status']}")
+            print(f"執行時間: {execution_time:.2f} 秒")
+            print(f"\n執行歷程:")
+            for entry in final_state.get('history', []):
+                print(f"  {entry}")
+            
+            if final_state.get('errors'):
+                print(f"\n錯誤記錄:")
+                for error in final_state['errors']:
+                    print(f"  ✗ {error}")
+            
+            if final_state['task_status'] == 'delivered':
+                print(f"\n✅ 給藥任務完成！")
+            else:
+                print(f"\n❌ 給藥任務失敗")
+            
+            print(f"\n📊 MLflow Run ID: {mlflow.active_run().info.run_id}")
+            print(f"\n{'#'*60}\n")
+            
+            return final_state
 
 
 # --- CLI for Testing ---

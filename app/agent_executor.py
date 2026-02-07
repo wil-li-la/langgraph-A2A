@@ -1,4 +1,4 @@
-"""A2A protocol integration layer for the LangGraph agent."""
+"""A2A protocol integration for medication delivery agent."""
 
 import logging
 
@@ -19,26 +19,26 @@ from a2a.utils import (
 )
 from a2a.utils.errors import ServerError
 
-from app.agent import ConversationalAgent
+from app.healthcare import MedicationDeliveryAgent
 
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class ConversationalAgentExecutor(AgentExecutor):
-    """A2A AgentExecutor implementation for the conversational agent."""
+class MedicationAgentExecutor(AgentExecutor):
+    """A2A AgentExecutor implementation for medication delivery agent."""
     
     def __init__(self):
-        """Initialize the executor with the LangGraph agent."""
-        self.agent = ConversationalAgent()
+        """Initialize the executor with medication delivery agent."""
+        self.medication_agent = MedicationDeliveryAgent()
     
     async def execute(
         self,
         context: RequestContext,
         event_queue: EventQueue,
     ) -> None:
-        """Execute the agent and stream responses via A2A protocol.
+        """Execute medication delivery task via A2A protocol.
         
         Args:
             context: Request context containing user input and task info
@@ -65,46 +65,56 @@ class ConversationalAgentExecutor(AgentExecutor):
         updater = TaskUpdater(event_queue, task.id, task.context_id)
         
         try:
-            # Stream agent responses
-            async for item in self.agent.stream(query, task.context_id):
-                is_task_complete = item['is_task_complete']
-                require_user_input = item['require_user_input']
+            logger.info(f"Executing medication delivery: {query}")
+            
+            # Send initial status
+            await updater.update_status(
+                TaskState.working,
+                new_agent_text_message(
+                    "🤖 啟動給藥系統...",
+                    task.context_id,
+                    task.id,
+                ),
+            )
+            
+            # Run medication delivery agent (synchronous)
+            result = self.medication_agent.execute(query)
+            
+            # Determine final status based on result
+            if result['task_status'] == 'delivered':
+                response = f"✅ 給藥任務完成！\n\n"
+                response += f"病患: {result['patient_name']}\n"
+                response += f"藥物: {result['medication_name']}\n"
+                response += f"位置: {result['current_location']}\n\n"
+                response += "執行歷程:\n"
+                for entry in result.get('history', []):
+                    response += f"  {entry}\n"
                 
-                # Agent is still working
-                if not is_task_complete and not require_user_input:
-                    await updater.update_status(
-                        TaskState.working,
-                        new_agent_text_message(
-                            item['content'],
-                            task.context_id,
-                            task.id,
-                        ),
-                    )
+                await updater.add_artifact(
+                    [Part(root=TextPart(text=response))],
+                    name='medication_delivery_result',
+                )
+                await updater.complete()
+            else:
+                response = f"❌ 給藥任務失敗\n\n"
+                response += f"狀態: {result['task_status']}\n\n"
+                if result.get('errors'):
+                    response += "錯誤:\n"
+                    for error in result['errors']:
+                        response += f"  ✗ {error}\n"
                 
-                # Agent needs more input from user
-                elif require_user_input:
-                    await updater.update_status(
-                        TaskState.input_required,
-                        new_agent_text_message(
-                            item['content'],
-                            task.context_id,
-                            task.id,
-                        ),
-                        final=True,
-                    )
-                    break
-                
-                # Task completed successfully
-                else:
-                    await updater.add_artifact(
-                        [Part(root=TextPart(text=item['content']))],
-                        name='agent_response',
-                    )
-                    await updater.complete()
-                    break
+                await updater.update_status(
+                    TaskState.input_required,
+                    new_agent_text_message(
+                        response,
+                        task.context_id,
+                        task.id,
+                    ),
+                    final=True,
+                )
         
         except Exception as e:
-            logger.error(f'An error occurred while streaming the response: {e}')
+            logger.error(f'An error occurred during medication delivery: {e}')
             raise ServerError(error=InternalError()) from e
     
     def _validate_request(self, context: RequestContext) -> bool:
@@ -116,8 +126,7 @@ class ConversationalAgentExecutor(AgentExecutor):
         Returns:
             True if validation fails, False if request is valid
         """
-        # Add custom validation logic here if needed
-        # For now, accept all requests
+        # Accept all requests for medication delivery
         return False
     
     async def cancel(

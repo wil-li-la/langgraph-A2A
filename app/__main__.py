@@ -1,4 +1,4 @@
-"""A2A server entry point for the LangGraph conversational agent."""
+"""A2A server entry point for medication delivery agent."""
 
 import logging
 import os
@@ -22,15 +22,13 @@ from a2a.types import (
 )
 
 # Load .env file if it exists (for local development)
-# This won't fail if .env doesn't exist (production environments)
 try:
     from dotenv import load_dotenv
-    load_dotenv()  # Only loads if .env exists, otherwise does nothing
+    load_dotenv()
 except ImportError:
     pass  # python-dotenv not installed, that's fine in production
 
-from app.agent import ConversationalAgent
-from app.agent_executor import ConversationalAgentExecutor
+from app.agent_executor import MedicationAgentExecutor
 
 
 logging.basicConfig(level=logging.INFO)
@@ -53,21 +51,8 @@ def validate_environment():
     logger.info(f"  - GOOGLE_API_KEY: {'[SET]' if os.getenv('GOOGLE_API_KEY') else '[NOT SET]'}")
     logger.info(f"  - OPENAI_API_KEY: {'[SET]' if os.getenv('OPENAI_API_KEY') else '[NOT SET]'}")
     
-    # Validate API key based on model source
-    if model_source == 'google':
-        if not os.getenv('GOOGLE_API_KEY'):
-            raise MissingAPIKeyError(
-                'GOOGLE_API_KEY environment variable not set.\n'
-                'For Railway/Zeabur: Set it in the dashboard under Variables.\n'
-                'For local: Create a .env file with GOOGLE_API_KEY=your_key'
-            )
-    else:
-        if not os.getenv('OPENAI_API_KEY'):
-            raise MissingAPIKeyError(
-                'OPENAI_API_KEY environment variable not set.\n'
-                'For Railway/Zeabur: Set it in the dashboard under Variables.\n'
-                'For local: Create a .env file with OPENAI_API_KEY=your_key'
-            )
+    # Note: API keys are optional for medication delivery demo with mock data
+    # Validate only if you plan to use LLM for NLU parsing
     
     return model_source
 
@@ -76,7 +61,7 @@ def validate_environment():
 @click.option('--host', 'host', default='0.0.0.0', help='Server host address')
 @click.option('--port', 'port', default=None, type=int, help='Server port number')
 def main(host: str, port: int):
-    """Start the LangGraph A2A agent server."""
+    """Start the medication delivery A2A agent server."""
     try:
         # Use PORT env var if --port not specified (for Railway/Zeabur/Cloud Run)
         if port is None:
@@ -91,51 +76,31 @@ def main(host: str, port: int):
             push_notifications=True
         )
         
-        # Define agent skills
-        general_conversation_skill = AgentSkill(
-            id='general_conversation',
-            name='General Conversation',
-            description='Engage in helpful conversations, answer questions, and assist with various tasks',
-            tags=['conversation', 'qa', 'assistant'],
+        # Define medication delivery skill
+        medication_delivery_skill = AgentSkill(
+            id='medication_delivery',
+            name='Medication Delivery (給藥服務)',
+            description='Execute end-to-end medication delivery tasks using HelloRobot Stretch',
+            tags=['healthcare', 'robotics', 'medication', 'delivery'],
             examples=[
-                'What is the capital of France?',
-                'Can you help me understand quantum physics?',
-                'Tell me about artificial intelligence',
-            ],
-        )
-        
-        search_skill = AgentSkill(
-            id='web_search',
-            name='Web Search',
-            description='Search for information on the web',
-            tags=['search', 'information', 'research'],
-            examples=[
-                'Search for the latest news about AI',
-                'Find information about climate change',
-            ],
-        )
-        
-        calculation_skill = AgentSkill(
-            id='calculation',
-            name='Mathematical Calculations',
-            description='Perform mathematical calculations and solve equations',
-            tags=['math', 'calculation', 'arithmetic'],
-            examples=[
-                'Calculate 25 * 48',
-                'What is 100 / 7?',
+                '請將阿斯匹靈送給張小明',
+                'Deliver Aspirin to John Smith',
+                '請將普拿疼送給李美華',
+                'Deliver Vitamin C to Mary Johnson',
+                '請將維他命C送給王大同',
             ],
         )
         
         # Create agent card
         agent_card = AgentCard(
-            name='LangGraph Conversational Agent',
-            description='A helpful AI assistant powered by LangGraph with A2A protocol support',
+            name='Medication Delivery Robot',
+            description='HelloRobot Stretch autonomous medication delivery system powered by LangGraph',
             url=f'http://{host}:{port}/',
             version='1.0.0',
-            default_input_modes=ConversationalAgent.SUPPORTED_CONTENT_TYPES,
-            default_output_modes=ConversationalAgent.SUPPORTED_CONTENT_TYPES,
+            default_input_modes=['text', 'text/plain'],
+            default_output_modes=['text', 'text/plain'],
             capabilities=capabilities,
-            skills=[general_conversation_skill, search_skill, calculation_skill],
+            skills=[medication_delivery_skill],
         )
         
         # Set up push notifications
@@ -148,7 +113,7 @@ def main(host: str, port: int):
         
         # Create request handler
         request_handler = DefaultRequestHandler(
-            agent_executor=ConversationalAgentExecutor(),
+            agent_executor=MedicationAgentExecutor(),
             task_store=InMemoryTaskStore(),
             push_config_store=push_config_store,
             push_sender=push_sender
@@ -160,7 +125,7 @@ def main(host: str, port: int):
             http_handler=request_handler
         )
         
-        logger.info(f'Starting LangGraph A2A agent server on {host}:{port}')
+        logger.info(f'Starting Medication Delivery A2A agent server on {host}:{port}')
         logger.info(f'Agent card available at: http://{host}:{port}/agent-card')
         
         # Run the server

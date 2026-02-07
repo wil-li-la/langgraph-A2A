@@ -4,21 +4,111 @@ A conversational AI agent built with [LangGraph](https://github.com/langchain-ai
 
 ## Overview
 
-This project implements a general-purpose conversational agent that can:
-- Answer questions and engage in helpful conversations
-- Search for information (with tool integration)
-- Perform mathematical calculations
-- Maintain conversation context across multiple turns
-- Communicate with other agents via the A2A protocol
+This project implements AI agents using **LangGraph** for workflow orchestration and **MLflow** for experiment tracking. It includes:
+
+1. **General Conversational Agent**: A ReAct-based agent for Q&A, search, and calculations
+2. **Healthcare Medication Delivery Agent**: A specialized LangGraph workflow for robotic medication delivery
+
+### What is LangGraph?
+
+[LangGraph](https://langchain-ai.github.io/langgraph/) is a framework for building stateful, multi-actor applications with LLMs. It extends LangChain with the ability to create **cyclic graphs** for complex agent workflows.
+
+**Key Concepts**:
+- **State**: Shared data structure that flows through the graph
+- **Nodes**: Functions that process and update the state
+- **Edges**: Connections between nodes (conditional or direct)
+- **Graphs**: The complete workflow definition
+
+**Why LangGraph?**
+- ✅ **Explicit Control Flow**: Define exactly how your agent should behave
+- ✅ **State Management**: Maintain context across multiple steps
+- ✅ **Conditional Logic**: Make decisions based on intermediate results
+- ✅ **Error Handling**: Built-in support for error recovery and human-in-the-loop
+- ✅ **Debugging**: Visualize and inspect workflow execution
+
+### Healthcare Agent Example
+
+The medication delivery agent (`app/healthcare/medication_delivery.py`) demonstrates a real-world LangGraph workflow:
+
+```
+┌─────────────┐
+│  NLU Parser │ ──┐
+└─────────────┘   │
+                  ▼
+            ┌──────────┐
+            │ Navigate  │
+            │ Pharmacy  │
+            └──────────┘
+                  │
+                  ▼
+            ┌──────────┐
+            │  Pickup   │──── Error? ───┐
+            │   Med     │               │
+            └──────────┘               │
+                  │                     │
+                  ▼                     ▼
+            ┌──────────┐         ┌──────────┐
+            │ Deliver   │         │  Error   │
+            │  Patient  │         │ Handler  │
+            └──────────┘         └──────────┘
+                  │                     │
+                  ▼                     ▼
+                [END]                 [END]
+```
+
+**Workflow Steps**:
+1. **NLU Parsing**: Extract patient name and medication from voice command
+2. **Navigation**: Guide robot to pharmacy
+3. **Medication Pickup**: Use vision to locate and grasp medication
+4. **Patient Delivery**: Navigate to patient room, verify identity, deliver medication
+5. **Error Handling**: Handle failures at any step with human intervention
 
 ## Features
 
-- **LangGraph ReAct Agent**: Uses the ReAct (Reasoning + Acting) pattern for intelligent tool usage
+### Core Capabilities
+
+- **LangGraph Workflows**: Build complex, stateful agent workflows with explicit control flow
 - **A2A Protocol Compliance**: Full support for agent-to-agent communication
+- **MLflow Experiment Tracking**: Automatic logging of parameters, metrics, and artifacts
 - **Streaming Responses**: Real-time task status updates
 - **Memory Persistence**: Maintains conversation context using thread IDs
 - **Flexible LLM Support**: Works with Google Gemini or OpenAI models
 - **Extensible Tools**: Easy to add custom tools and capabilities
+
+### MLflow Integration
+
+**MLflow** provides experiment tracking and model management for your agents. Every task execution automatically logs:
+
+**Parameters**:
+- Input instructions
+- Patient/medication names
+- Agent configuration
+- LLM model settings
+
+**Metrics**:
+- Task success rate
+- Execution time
+- Error counts
+- Workflow step counts
+- Detection/verification accuracy
+
+**Artifacts**:
+- Complete execution state (JSON)
+- Workflow history
+- Error logs
+
+**Benefits**:
+- 📊 **Track Performance**: Monitor success rates and execution times over time
+- 🔍 **Debug Issues**: Review failed runs with complete state information
+- 📈 **Compare Experiments**: A/B test different prompts, models, or configurations
+- 💰 **Cost Tracking**: Monitor LLM API usage and costs
+- 🎯 **Optimize Workflows**: Identify bottlenecks in your agent workflows
+
+**Access MLflow Dashboard**:
+```bash
+mlflow ui --port 5001
+# Open http://localhost:5001 in your browser
+```
 
 ## Installation
 
@@ -198,18 +288,113 @@ payload = {
 
 See [`simple_client.py`](./simple_client.py) for a minimal example or [`client_example.py`](./client_example.py) for a full-featured version with error handling and conversation support.
 
+### Healthcare Medication Delivery Agent
+
+The healthcare agent demonstrates a complete LangGraph workflow for robotic medication delivery.
+
+**Run the agent**:
+```bash
+python -m app.healthcare.medication_delivery
+```
+
+**With custom instruction**:
+```bash
+python -m app.healthcare.medication_delivery "請將阿斯匹靈送給張小明"
+```
+
+**Example Output**:
+```
+############################################################
+# 給藥任務開始
+############################################################
+
+🎤 正在解析指令: 請將阿斯匹靈送給張小明
+✓ 解析完成: 病患=張小明, 藥物=阿斯匹靈
+
+🚶 導航中: 前往藥局領取 阿斯匹靈
+✓ 已到達藥局
+
+👁️ 視覺辨識中: 搜尋 阿斯匹靈
+✓ 藥物已定位
+
+🤖 機械臂操作中: 抓取藥物
+✓ 藥物已抓取
+
+🚶 導航中: 前往病房
+✓ 已到達病房 301
+
+👤 身份驗證中: 人臉辨識
+✓ 身份驗證成功: 張小明
+
+🤝 遞交藥物中...
+✓ 藥物已遞交給病患
+
+✅ 給藥任務完成！
+📊 MLflow Run ID: d35b85069f384a00a5f2f98052f1d48d
+```
+
+**Available Test Commands**:
+1. `請將阿斯匹靈送給張小明` (Chinese)
+2. `Deliver Aspirin to John Smith` (English)
+3. `請將普拿疼送給李美華`
+4. `請將維他命C送給王大同`
+
+### MLflow Monitoring
+
+All agent executions are automatically tracked in MLflow.
+
+**Start the MLflow UI**:
+```bash
+mlflow ui --port 5001
+```
+
+**Access the dashboard**: http://localhost:5001
+
+**What you can do**:
+- 📊 View all experiment runs and their metrics
+- 🔍 Compare different agent configurations side-by-side
+- 📈 Track success rates and execution times over time
+- 💾 Download execution artifacts (state, logs, errors)
+- 🎯 Filter runs by parameters, metrics, or tags
+
+**Example Queries**:
+```python
+import mlflow
+
+# Search for successful medication deliveries
+runs = mlflow.search_runs(
+    experiment_names=["medication_delivery_agent"],
+    filter_string="metrics.task_success = 1"
+)
+
+# Get average execution time
+avg_time = runs["metrics.execution_time_seconds"].mean()
+print(f"Average execution time: {avg_time:.2f}s")
+
+# Find failed runs
+failed_runs = mlflow.search_runs(
+    experiment_names=["medication_delivery_agent"],
+    filter_string="metrics.task_success = 0"
+)
+```
+
 ## Project Structure
 
 ```
-pydantic-ai-test/
+langgraph-a2a/
 ├── app/
-│   ├── __init__.py          # Package initialization
-│   ├── __main__.py          # Server entry point
-│   ├── agent.py             # LangGraph agent implementation
-│   └── agent_executor.py    # A2A protocol integration
-├── pyproject.toml           # Dependencies and project config
-├── .env.example             # Environment variables template
-└── README.md                # This file
+│   ├── __init__.py              # Package initialization
+│   ├── __main__.py              # Server entry point (A2A agent)
+│   ├── agent_executor.py        # A2A protocol integration
+│   └── healthcare/
+│       ├── medication_delivery.py   # LangGraph medication delivery workflow
+│       └── mock_data.py             # Mock database and robot actions
+├── mlruns/                      # MLflow experiment tracking data
+├── pyproject.toml               # Dependencies and project config
+├── .env.example                 # Environment variables template
+├── Dockerfile                   # Docker container configuration
+├── docker-compose.yml           # Docker Compose setup
+└── README.md                    # This file
 ```
 
 ## Customization
@@ -229,6 +414,72 @@ def my_custom_tool(param: str) -> str:
 
 # Add to the agent's tools list
 self.tools = [search_web, calculate, my_custom_tool]
+```
+
+### Creating Custom LangGraph Workflows
+
+Build your own stateful workflows like the medication delivery agent:
+
+```python
+from typing import TypedDict
+from langgraph.graph import StateGraph, END
+
+# 1. Define your state
+class MyAgentState(TypedDict):
+    input: str
+    output: str
+    step_count: int
+
+# 2. Create node functions
+def process_node(state: MyAgentState) -> dict:
+    # Your processing logic
+    return {
+        "output": f"Processed: {state['input']}",
+        "step_count": state.get('step_count', 0) + 1
+    }
+
+# 3. Build the graph
+workflow = StateGraph(MyAgentState)
+workflow.add_node("process", process_node)
+workflow.set_entry_point("process")
+workflow.add_edge("process", END)
+
+# 4. Compile and run
+app = workflow.compile()
+result = app.invoke({"input": "Hello", "step_count": 0})
+```
+
+**Key Patterns**:
+- Use `TypedDict` for type-safe state management
+- Return partial state updates from nodes (they merge automatically)
+- Use `add_conditional_edges()` for branching logic
+- Add error handling nodes for robustness
+- Log state transitions with MLflow for debugging
+
+### Integrating MLflow with Custom Workflows
+
+Add tracking to your custom workflows:
+
+```python
+import mlflow
+
+class MyAgent:
+    def execute(self, input_data: str):
+        with mlflow.start_run():
+            # Log parameters
+            mlflow.log_param("input", input_data)
+            mlflow.set_tag("workflow_type", "custom")
+            
+            # Run workflow
+            result = self.app.invoke({"input": input_data})
+            
+            # Log metrics
+            mlflow.log_metrics({
+                "success": 1 if result['output'] else 0,
+                "steps": result['step_count']
+            })
+            
+            return result
 ```
 
 ### Adding New Skills
@@ -318,7 +569,19 @@ ERROR:    [Errno 48] Address already in use
 
 ## Resources
 
+### LangGraph
 - [LangGraph Documentation](https://langchain-ai.github.io/langgraph/)
+- [LangGraph Tutorials](https://langchain-ai.github.io/langgraph/tutorials/)
+- [LangGraph GitHub](https://github.com/langchain-ai/langgraph)
+- [LangGraph Conceptual Guide](https://langchain-ai.github.io/langgraph/concepts/)
+
+### MLflow
+- [MLflow Documentation](https://mlflow.org/docs/latest/index.html)
+- [MLflow Tracking Guide](https://mlflow.org/docs/latest/tracking.html)
+- [MLflow Python API](https://mlflow.org/docs/latest/python_api/index.html)
+- [MLflow LangChain Integration](https://mlflow.org/docs/latest/llms/langchain/index.html)
+
+### A2A Protocol
 - [A2A Protocol Samples](https://github.com/a2aproject/a2a-samples)
 - [A2A SDK Documentation](https://github.com/a2aproject/a2a-sdk-python)
 

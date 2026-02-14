@@ -7,6 +7,9 @@ import sys
 import click
 import httpx
 import uvicorn
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
+from starlette.routing import Route
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -29,6 +32,7 @@ except ImportError:
     pass  # python-dotenv not installed, that's fine in production
 
 from app.agent_executor import MedicationAgentExecutor
+from app.workflow_api import workflow_routes
 
 
 logging.basicConfig(level=logging.INFO)
@@ -125,11 +129,32 @@ def main(host: str, port: int):
             http_handler=request_handler
         )
         
+        # Build the base Starlette app and add workflow API routes + CORS
+        starlette_app = server.build()
+        
+        # Mount workflow API routes
+        for route in workflow_routes:
+            starlette_app.routes.insert(0, route)
+        
+        # Add CORS middleware for frontend dev server
+        starlette_app.add_middleware(
+            CORSMiddleware,
+            allow_origins=[
+                "http://localhost:3000",
+                "http://127.0.0.1:3000",
+                os.getenv("FRONTEND_URL", ""),
+            ],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+        
         logger.info(f'Starting Medication Delivery A2A agent server on {host}:{port}')
         logger.info(f'Agent card available at: http://{host}:{port}/agent-card')
+        logger.info(f'Workflow API available at: http://{host}:{port}/api/workflow')
         
         # Run the server
-        uvicorn.run(server.build(), host=host, port=port)
+        uvicorn.run(starlette_app, host=host, port=port)
     
     except MissingAPIKeyError as e:
         logger.error(f'Configuration Error: {e}')

@@ -1,28 +1,48 @@
 services:
-  langgraph-agent:
+  backend:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
-    container_name: langgraph-a2a-agent
+    container_name: langgraph-a2a-backend
     ports:
       - "${PORT:-9999}:${PORT:-9999}"
     environment:
-      # Port configuration
       - PORT=${PORT:-9999}
-      # LLM Provider Configuration
       - model_source=${model_source:-google}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # Optional: Custom OpenAI-compatible endpoint
       - TOOL_LLM_URL=${TOOL_LLM_URL}
       - TOOL_LLM_NAME=${TOOL_LLM_NAME}
+      - FRONTEND_URL=http://frontend:3000
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl -f http://localhost:$${PORT:-9999}/agent-card"]
+      test:
+        [
+          "CMD",
+          "sh",
+          "-c",
+          "curl -f http://localhost:$${PORT:-9999}/agent-card",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 5s
+    networks:
+      - agent-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: langgraph-a2a-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:${PORT:-9999}
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
     networks:
       - agent-network
 

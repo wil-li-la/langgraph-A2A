@@ -1,1 +1,29 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment
 .env
+backend/.env
+
+# Build artifacts
+.next/
+out/
+dist/
+build/
+*.egg-info/
+
+# MLflow
+backend/mlruns/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Docker
+*.log

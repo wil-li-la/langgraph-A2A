@@ -243,6 +243,59 @@ def deliver_to_patient_node(state: AgentState) -> dict:
     }
 
 
+def check_patient_identity_node(state: AgentState) -> dict:
+    """Post-delivery patient identity confirmation check."""
+    patient_name = state['patient_name']
+    medication_name = state['medication_name']
+    
+    print(f"\n{'='*60}")
+    print(f"🔍 再次確認病患身份: {patient_name}")
+    print(f"{'='*60}")
+    
+    # Verify patient identity again (e.g., wristband scan, medication label match)
+    patient_info = MockDatabase.get_patient(patient_name)
+    
+    if not patient_info:
+        print(f"✗ 無法取得病患資料: {patient_name}")
+        return {
+            "identity_verified": False,
+            "task_status": "identity_check_failed",
+            "errors": [f"再次身份確認失敗: 病患資料不存在 {patient_name}"],
+            "history": [f"✗ 再次身份確認失敗: {patient_name}"]
+        }
+    
+    # Verify medication matches prescription
+    prescriptions = patient_info.get('prescriptions', [])
+    med_match = any(
+        p['medication'] == medication_name for p in prescriptions
+    )
+    
+    if not med_match:
+        print(f"✗ 藥物與處方不符: {medication_name}")
+        return {
+            "identity_verified": False,
+            "task_status": "identity_check_failed",
+            "errors": [f"藥物與處方不符: {medication_name} 不在 {patient_name} 的處方中"],
+            "history": [f"✗ 藥物處方核對失敗: {medication_name}"]
+        }
+    
+    # Identity and prescription confirmed
+    print(f"✓ 病患身份確認完成")
+    print(f"  - 病患: {patient_name}")
+    print(f"  - 病房: {patient_info['room']}")
+    print(f"  - 藥物: {medication_name} ✓ 處方核對成功")
+    
+    confirmation = f"身份確認完成，{patient_name} 的 {medication_name} 已安全送達。"
+    MockRobotActions.speak(confirmation)
+    print(f"\n🔊 「{confirmation}」")
+    
+    return {
+        "identity_verified": True,
+        "task_status": "identity_confirmed",
+        "history": [f"✓ 再次身份確認成功: {patient_name}, 藥物: {medication_name}"]
+    }
+
+
 def error_handler_node(state: AgentState) -> dict:
     """Handle errors and request human intervention."""
     print(f"\n{'='*60}")
@@ -317,10 +370,14 @@ def create_medication_delivery_workflow() -> StateGraph:
         }
     )
     
-    workflow.add_edge("delivery", END)
+    workflow.add_node("check_patient_identity", check_patient_identity_node)
+    
+    workflow.add_edge("delivery", "check_patient_identity")
+    workflow.add_edge("check_patient_identity", END)
     workflow.add_edge("handle_error", END)
     
     return workflow.compile()
+
 
 
 
@@ -380,7 +437,7 @@ class MedicationDeliveryAgent:
             })
             
             # Log metrics
-            task_success = 1 if final_state['task_status'] == 'delivered' else 0
+            task_success = 1 if final_state['task_status'] in ('delivered', 'identity_confirmed') else 0
             mlflow.log_metrics({
                 "task_success": task_success,
                 "execution_time_seconds": execution_time,

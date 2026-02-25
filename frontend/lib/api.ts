@@ -20,6 +20,7 @@ export interface ExecutionResult {
   identity_verified: boolean
   errors: string[]
   history: string[]
+  executed_nodes: string[]
 }
 
 /**

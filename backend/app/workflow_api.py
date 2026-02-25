@@ -122,6 +122,7 @@ async def execute_workflow(request: Request) -> JSONResponse:
             "identity_verified": result.get("identity_verified"),
             "errors": result.get("errors", []),
             "history": result.get("history", []),
+            "executed_nodes": result.get("executed_nodes", []),
         })
 
     except Exception as e:

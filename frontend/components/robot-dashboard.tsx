@@ -11,8 +11,9 @@ import { useWorkflow } from "@/hooks/use-workflow"
 
 export function RobotDashboard() {
   const [selectedRobot, setSelectedRobot] = useState<RobotId>("stretch3")
+  const [executedNodes, setExecutedNodes] = useState<string[]>([])
   const data = taskData[selectedRobot]
-  const { nodes, edges, isLoading, isLive } = useWorkflow(selectedRobot)
+  const { nodes, edges, isLoading, isLive } = useWorkflow(selectedRobot, executedNodes)
 
   return (
     <div className="flex min-h-screen flex-col bg-background p-4 lg:p-6">
@@ -79,7 +80,7 @@ export function RobotDashboard() {
           <div className="flex flex-col gap-4">
             {/* Operation Mode panel */}
             <div className="rounded-md border border-border bg-card p-4">
-              <ModeToggle />
+              <ModeToggle onExecutionResult={(res) => setExecutedNodes(res.executed_nodes)} />
             </div>
 
             {/* 3D view / main camera */}

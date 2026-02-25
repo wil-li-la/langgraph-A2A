@@ -84,13 +84,19 @@ export function WorkflowGraph({ nodes, edges }: WorkflowGraphProps) {
     })
 
     if (errorNode) {
-      // Place error node to the right, vertically between the two decision nodes
-      const check2Pos = positions.get("check2")
-      const deliveryPos = positions.get("delivery")
-      if (check2Pos && deliveryPos) {
+      // Place error node to the right, vertically between the last two nodes if possible
+      const nodeIds = Array.from(positions.keys())
+      const checkPos = positions.get("check_patient_identity") || positions.get("check2") || positions.get(nodeIds[nodeIds.length - 2])
+      const deliveryPos = positions.get("delivery") || positions.get(nodeIds[nodeIds.length - 1])
+      if (checkPos && deliveryPos) {
         positions.set(errorNode.id, {
           x: centerX + NODE_WIDTH + 40,
-          y: (check2Pos.y + deliveryPos.y) / 2,
+          y: (checkPos.y + deliveryPos.y) / 2,
+        })
+      } else {
+        positions.set(errorNode.id, {
+          x: centerX + NODE_WIDTH + 40,
+          y,
         })
       }
     }

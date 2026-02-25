@@ -17,6 +17,13 @@ build/
 
 # MLflow
 backend/mlruns/
+mlruns/
+
+# Temp & Data
+tmp_cure/
+backend/data/
+backend/.venv/
+.venv/
 
 # IDE
 .vscode/

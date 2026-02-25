@@ -21,7 +21,7 @@ services:
           "CMD",
           "sh",
           "-c",
-          "curl -f http://localhost:$${PORT:-9999}/agent-card",
+          "curl -f http://localhost:$${PORT:-9999}/.well-known/agent.json",
         ]
       interval: 30s
       timeout: 10s

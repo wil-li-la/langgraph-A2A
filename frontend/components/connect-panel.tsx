@@ -9,14 +9,16 @@ import {
 } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
 import { robots, type RobotId, type RobotTaskData } from "@/lib/mock-data"
+import type { SkillsData } from "@/lib/api"
 
 interface ConnectPanelProps {
   selectedRobot: RobotId
   onSelectRobot: (id: RobotId) => void
   data: RobotTaskData
+  skillsData: SkillsData | null
 }
 
-export function ConnectPanel({ selectedRobot, onSelectRobot, data }: ConnectPanelProps) {
+export function ConnectPanel({ selectedRobot, onSelectRobot, data, skillsData }: ConnectPanelProps) {
   const robot = robots.find((r) => r.id === selectedRobot)
   const isConnected = robot?.status === "connected"
 
@@ -65,23 +67,17 @@ export function ConnectPanel({ selectedRobot, onSelectRobot, data }: ConnectPane
       <div>
         <p className="mb-2 font-mono text-xs text-muted-foreground">Load Skill</p>
         <div className="flex flex-wrap gap-2">
-          {data.skills.map((skill) => (
+          {skillsData ? skillsData.available.map((skillId) => (
             <Button
-              key={skill.id}
-              variant={skill.loaded ? "secondary" : "outline"}
+              key={skillId}
+              variant="secondary"
               size="sm"
-              className={`font-mono text-xs ${
-                skill.loaded
-                  ? "border-foreground/20 bg-foreground/10 text-foreground"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              }`}
+              className="font-mono text-xs border-foreground/20 bg-foreground/10 text-foreground capitalize"
             >
-              {skill.name}
-              {skill.loaded && (
-                <span className="ml-1.5 inline-block h-1 w-1 rounded-full bg-foreground" />
-              )}
+              {skillId}
+              <span className="ml-1.5 inline-block h-1 w-1 rounded-full bg-foreground" />
             </Button>
-          ))}
+          )) : <span className="font-mono text-[10px] text-muted-foreground/50">loading...</span>}
         </div>
       </div>
     </div>

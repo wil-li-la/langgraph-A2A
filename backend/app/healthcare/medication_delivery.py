@@ -1,591 +1,580 @@
 """LangGraph-based medication delivery agent for HelloRobot Stretch."""
 
-import json
 import operator
-import os
-import tempfile
 import time
-from typing import Annotated, List, TypedDict
+import logging
+from pathlib import Path
+import rerun as rr
+from typing import Annotated, Generator, List, Tuple, TypedDict
 
 from langgraph.graph import StateGraph, END
-import mlflow
 
 from cure.skills.grasp import grasp_skill
+from cure.config import update_config, Config
 from cure.skills.listen import listen_skill
-from cure.skills.speak import speak_skill
+from cure.skills.speak import speak_skill, wait_for_speech_completion
+from cure.skills.handover import handover_skill
+from cure.skills.navigate import navigate_skill
 
-from app.healthcare.mock_data import MockDatabase, MockRobotActions, MockNLU
+from app.healthcare.mock_data import MockDatabase, MockRobotActions
 
-# Configure MLflow
-mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "file:./mlruns"))
-mlflow.set_experiment("medication_delivery_agent")
+update_config(Config.from_yaml("./cure/config.yaml"))
+
+logger = logging.getLogger(__name__)
+
+# All .rrd files are saved here automatically after each run
+RERUN_LOG_DIR = Path(__file__).resolve().parent.parent.parent / "logs" / "rerun"
+RERUN_LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+# Set to True when rr.init() has already been called
+_rr_initialized = False
 
 
 class AgentState(TypedDict):
     """State definition for medication delivery workflow."""
-    
-    # Original input and parsed results
-    instruction: str
     patient_name: str
     medication_name: str
-    
-    # Execution progress and location
-    current_location: str  # e.g., "pharmacy", "patient_room", "charging_dock"
-    task_status: str       # e.g., "identifying_med", "navigating", "completed"
-    
-    # Perception results
+    current_location: str
+    task_status: str
     target_detected: bool
     identity_verified: bool
-    
-    # Error messages and logs
+    identity_check_retries: int
     errors: Annotated[List[str], operator.add]
     history: Annotated[List[str], operator.add]
     executed_nodes: Annotated[List[str], operator.add]
 
 
+# --- Helper ---
+
+def _setup_cure_loggers():
+    """Ensure all cure skill loggers also write to rerun 'workflow/log'.
+
+    cure's setup_skill_logger() may have already added handlers (e.g. its own
+    rr.LoggingHandler("logs")), so we cannot rely on `if not handlers`.
+    Instead we use a sentinel attribute to avoid double-adding our handler.
+    """
+    skills_to_patch = [
+        "cure.skills.grasp",
+        "cure.skills.listen",
+        "cure.skills.speak",
+        "cure.skills.handover",
+        "cure.skills.navigate",
+    ]
+    for skill in skills_to_patch:
+        skill_logger = logging.getLogger(skill)
+
+        # Already patched by us — skip
+        if getattr(skill_logger, "_app_rr_handler_added", False):
+            continue
+
+        # Add StreamHandler only if nothing at all is present yet
+        if not skill_logger.handlers:
+            sh = logging.StreamHandler()
+            sh.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+            skill_logger.addHandler(sh)
+
+        # Always add our workflow/log rerun handler
+        skill_logger.addHandler(rr.LoggingHandler("workflow/log"))
+        skill_logger.setLevel(logging.DEBUG)
+        skill_logger._app_rr_handler_added = True  # type: ignore[attr-defined]
+
+
+def _log(icon: str, msg: str):
+    """Unified log — goes to console AND rerun."""
+    msg_full = f"{icon} {msg}"
+    logger.info(msg_full)
+    rr.log("workflow/log", rr.TextLog(msg_full, level="INFO"))
+
+
+def _fail(node: str, status: str, error: str, history_msg: str | None = None) -> dict:
+    """Build a failure return dict and log to rerun."""
+    logger.error(f"Node {node} failed: {error}")
+    rr.log("workflow/log", rr.TextLog(f"Node {node} failed: {error}", level="ERROR"))
+    rr.log(f"workflow/{node}/error", rr.TextDocument(error))
+    return {
+        "task_status": status,
+        "errors": [error],
+        "history": [history_msg or f"✗ {error}"],
+        "executed_nodes": [node],
+    }
+
+
+def _section(icon: str, title: str):
+    msg_full = f"{icon} {title}"
+    logger.info(f"\n{'='*60}\n{msg_full}\n{'='*60}")
+    rr.log("workflow/log", rr.TextLog(msg_full, level="INFO"))
+
+
+def _log_node_entry(node_name: str, state: AgentState):
+    """Log node entry to rerun for visual timeline debugging."""
+    step = len(state.get("executed_nodes", []))
+    rr.set_time("node_step", sequence=step)
+    rr.log(
+        f"workflow/{node_name}/status",
+        rr.TextDocument(f"status: {state.get('task_status', 'unknown')}"),
+    )
+
+
+def _speak_and_wait(text: str, timeout_s: float = 30.0):
+    """Speak text and block until speech completes."""
+    job_id = speak_skill(text)
+    wait_for_speech_completion(job_id, timeout_s=timeout_s)
+
+
 # --- Node Functions ---
 
-def nlu_parser_node(state: AgentState) -> dict:
-    """Parse voice instruction to extract patient and medication names."""
-    print(f"\n{'='*60}")
-    print(f"🎤 正在解析指令: {state['instruction']}")
-    print(f"{'='*60}")
+def confirm_task_node(state: AgentState) -> dict:
+    """Pre-check validation: confirm patient and medication exist."""
+    _log_node_entry("confirm_task", state)
+    patient_name = state['patient_name']
     
-    # Use mock NLU to parse instruction
-    result = MockNLU.parse_instruction(state['instruction'])
+    _section("🔍", f"確認任務: 給予 {patient_name} 藥物")
     
-    if result['success']:
-        patient_name = result['patient_name']
-        medication_name = result['medication_name']
-        
-        print(f"✓ 解析完成:")
-        print(f"  - 病患: {patient_name}")
-        print(f"  - 藥物: {medication_name}")
-        print(f"  - 信心度: {result['confidence']}")
-        
-        return {
-            "patient_name": patient_name,
-            "medication_name": medication_name,
-            "task_status": "parsed",
-            "history": [f"✓ NLU解析: 病患={patient_name}, 藥物={medication_name}"],
-            "executed_nodes": ["nlu_parser"]
-        }
-    else:
-        print(f"✗ 解析失敗: {result['message']}")
-        return {
-            "task_status": "parse_failed",
-            "errors": [result['message']],
-            "history": [f"✗ NLU解析失敗: {result['message']}"],
-            "executed_nodes": ["nlu_parser"]
-        }
+    patient_info = MockDatabase.get_patient(patient_name)
+    if not patient_info:
+        _log("✗", f"病患資料庫中無此人: {patient_name}")
+        return _fail("confirm_task", "patient_not_found", f"無效病患: {patient_name}")
+    
+    _log("✓", "任務確認成功")
+    return {
+        "task_status": "task_confirmed",
+        "history": [f"✓ 確認給藥任務: {patient_name}"],
+        "executed_nodes": ["confirm_task"]
+    }
 
 
 def navigate_to_pharmacy_node(state: AgentState) -> dict:
     """Navigate robot to pharmacy to pick up medication."""
-    print(f"\n{'='*60}")
-    print(f"🚶 導航中: 前往藥局領取 {state['medication_name']}")
-    print(f"{'='*60}")
+    _log_node_entry("nav_to_pharmacy", state)
+    _section("🚶", f"導航中: 前往藥局領取 {state['medication_name']}")
+
+    navigate_skill("medicine")
+    # 目前無確認導航是否失敗
     
-    # Simulate navigation
-    nav_result = MockRobotActions.navigate(
-        from_loc=state.get('current_location', 'charging_dock'),
-        to_loc='pharmacy'
-    )
-    
-    if nav_result['success']:
-        print(f"✓ 已到達藥局")
-        print(f"  - 路徑長度: {nav_result['path_length']}m")
-        print(f"  - 耗時: {nav_result['duration']}秒")
-        
-        return {
-            "current_location": "pharmacy",
-            "task_status": "at_pharmacy",
-            "history": [f"✓ 導航至藥局 (耗時: {nav_result['duration']}秒)"],
-            "executed_nodes": ["nav_to_pharmacy"]
-        }
-    else:
-        print(f"✗ 導航失敗")
-        return {
-            "task_status": "navigation_failed",
-            "errors": ["導航至藥局失敗"],
-            "history": ["✗ 導航至藥局失敗"],
-            "executed_nodes": ["nav_to_pharmacy"]
-        }
+    _log("✓", "已到達藥局")
+    return {
+        "current_location": "pharmacy",
+        "task_status": "at_pharmacy",
+        "history": ["✓ 導航至藥局"],
+        "executed_nodes": ["nav_to_pharmacy"],
+    }
 
 
 def pickup_medication_node(state: AgentState) -> dict:
-    """Use vision system to locate medication and pick it up."""
-    print(f"\n{'='*60}")
-    print(f"👁️  視覺辨識中: 搜尋 {state['medication_name']}")
-    print(f"{'='*60}")
-    
-    # Step 1: Detect medication using vision
-    detect_result = MockRobotActions.detect_medication(state['medication_name'])
-    
-    if not detect_result['success']:
-        print(f"✗ {detect_result['message']}")
-        return {
-            "target_detected": False,
-            "task_status": "medication_not_found",
-            "errors": [detect_result['message']],
-            "history": [f"✗ 藥物辨識失敗: {state['medication_name']}"],
-            "executed_nodes": ["pickup_med"]
-        }
-    
-    
-    print(f"✓ 藥物已定位")
-    print(f"  - 位置: {detect_result['location']}")
-    print(f"  - 描述: {detect_result['description']}")
-    print(f"  - 信心度: {detect_result['confidence']}")
-    
-    # Step 2: Pick up medication with robotic arm
-    grasp_skill()
-    print(f"\n🤖 機械臂操作中: 抓取藥物")
-    pickup_result = MockRobotActions.pickup_medication()
-    
-    if not pickup_result['success']:
-        print(f"✗ {pickup_result['message']}")
-        return {
-            "target_detected": True,
-            "task_status": "pickup_failed",
-            "errors": [pickup_result['message']],
-            "history": [
-                f"✓ 藥物已定位: {state['medication_name']}",
-                f"✗ 抓取失敗"
-            ],
-            "executed_nodes": ["pickup_med"]
-        }
-    
-    print(f"✓ {pickup_result['message']}")
-    print(f"  - 夾爪力道: {pickup_result['force']}N")
-    
+    """Call grasp_skill() to detect and pick up the medication.
+
+    grasp() has built-in medication detection, so a separate detect step
+    is unnecessary. Returns bool indicating success.
+    """
+    _log_node_entry("pickup_med", state)
+    _section("🤖", f"機械臂操作中: 抓取 {state['medication_name']}")
+
+    success = grasp_skill("medicine")
+
+    if not success:
+        _log("✗", "藥物抓取失敗")
+        return _fail("pickup_med", "pickup_failed", f"藥物抓取失敗: {state['medication_name']}",
+                      f"✗ 藥物抓取失敗: {state['medication_name']}")
+
+    _log("✓", f"藥物已抓取: {state['medication_name']}")
     return {
         "target_detected": True,
         "task_status": "med_picked",
-        "history": [
-            f"✓ 藥物已定位: {state['medication_name']}",
-            f"✓ 藥物已抓取 (力道: {pickup_result['force']}N)"
-        ],
-        "executed_nodes": ["pickup_med"]
+        "history": [f"✓ 藥物已抓取: {state['medication_name']}"],
+        "executed_nodes": ["pickup_med"],
+    }
+
+def navigate_to_patient_node(state: AgentState) -> dict:
+    """Navigate robot to patient room."""
+    _log_node_entry("nav_to_patient", state)
+    patient_name = state['patient_name']
+    
+    #無需確認病人資料庫
+    _section("🚶", f"導航中: 前往 {patient_name} 的病房")
+    navigate_skill("patient")
+
+    #目前無需確認是否導航失敗
+    _log("✓", "已到達病房")
+    return {
+        "current_location": "patient_room",
+        "task_status": "at_patient_room",
+        "history": ["✓ 導航至病房"],
+        "executed_nodes": ["nav_to_patient"],
     }
 
 
 def deliver_to_patient_node(state: AgentState) -> dict:
-    """Navigate to patient room and announce arrival."""
+    """Announce arrival and initiate delivery interaction."""
+    _log_node_entry("delivery", state)
     patient_name = state['patient_name']
     medication_name = state['medication_name']
-    
-    # Get patient information
-    patient_info = MockDatabase.get_patient(patient_name)
-    if not patient_info:
-        print(f"✗ 病患資料庫中無此人: {patient_name}")
-        return {
-            "identity_verified": False,
-            "task_status": "patient_not_found",
-            "errors": [f"病患資料庫中無此人: {patient_name}"],
-            "history": [f"✗ 病患不存在: {patient_name}"],
-            "executed_nodes": ["delivery"]
-        }
-    
-    room = patient_info['room']
-    
-    print(f"\n{'='*60}")
-    print(f"🚶 導航中: 前往 {patient_name} 的病房 ({room}室)")
-    print(f"{'='*60}")
-    
-    # Navigate to patient room
-    nav_result = MockRobotActions.navigate(
-        from_loc=state.get('current_location', 'pharmacy'),
-        to_loc=f'room_{room}'
-    )
-    
-    if not nav_result['success']:
-        print(f"✗ 導航失敗")
-        return {
-            "identity_verified": False,
-            "task_status": "navigation_failed",
-            "errors": [f"導航至{room}室失敗"],
-            "history": [f"✗ 導航至病房{room}失敗"],
-            "executed_nodes": ["delivery"]
-        }
-    
-    print(f"✓ 已到達病房 {room}")
-    print(f"  - 耗時: {nav_result['duration']}秒")
-    
-    # Announce arrival
-    print(f"\n🔊 語音播報中...")
+
     greeting = f"您好{patient_name}，這是您的{medication_name}，請先確認身份。"
-    speak_skill(greeting)
-    print(f"   「{greeting}」")
-    
+    _log("🔊", f"語音播報: 「{greeting}」")
+    _speak_and_wait(greeting)
+
     return {
-        "current_location": f"room_{room}",
-        "task_status": "at_patient_room",
-        "history": [
-            f"✓ 導航至病房{room} (耗時: {nav_result['duration']}秒)",
-            f"✓ 已播報到達通知"
-        ],
-        "executed_nodes": ["delivery"]
+        "task_status": "ready_for_identity_check",
+        "history": ["✓ 已播報到達通知"],
+        "executed_nodes": ["delivery"],
     }
 
 
 def check_patient_identity_node(state: AgentState) -> dict:
-    """Verify patient identity (face + voice) and hand off medication only after confirmation."""
+    """Verify patient identity and medication awareness via voice with retries."""
+    _log_node_entry("check_patient_identity", state)
     patient_name = state['patient_name']
     medication_name = state['medication_name']
-    
-    print(f"\n{'='*60}")
-    print(f"🔍 確認病患身份與用藥認知: {patient_name}")
-    print(f"{'='*60}")
-    
-    # 1. Verify patient exists in database
-    patient_info = MockDatabase.get_patient(patient_name)
-    if not patient_info:
-        print(f"✗ 無法取得病患資料: {patient_name}")
-        return {
-            "identity_verified": False,
-            "task_status": "identity_check_failed",
-            "errors": [f"身份確認失敗: 病患資料不存在 {patient_name}"],
-            "history": [f"✗ 身份確認失敗: {patient_name}"],
-            "executed_nodes": ["check_patient_identity"]
-        }
-    
-    # 2. Face recognition
-    print(f"\n👤 身份驗證中: 人臉辨識")
-    verify_result = MockRobotActions.verify_identity(patient_name)
-    
-    if not verify_result['success']:
-        print(f"✗ {verify_result['message']}")
-        return {
-            "identity_verified": False,
-            "task_status": "identity_check_failed",
-            "errors": [verify_result['message']],
-            "history": [f"✗ 人臉辨識失敗"],
-            "executed_nodes": ["check_patient_identity"]
-        }
-    
-    print(f"✓ {verify_result['message']}")
-    print(f"  - 信心度: {verify_result['confidence']}")
-    print(f"  - Face ID: {verify_result['face_id']}")
-    
-    # 3. Voice confirmation for identity
+    retries = state.get('identity_check_retries', 0)
+    node = "check_patient_identity"
+
+    _section("🔍", f"確認病患身份與用藥認知: {patient_name} (第 {retries + 1} 次嘗試)")
+
+    # 1. Voice confirmation — identity
     q1 = f"請問是{patient_name}嗎？ 請明確的回答，是我是，或我不是"
-    print(f"\n🔊 語音播放: 「{q1}」")
-    speak_skill(q1)
-    
-    patient_response_1 = listen_skill()
-    print(f"🗣️ 病患回覆: 「{patient_response_1}」")
-    
-    identity_positive = ["是我是", "我是", "是的", "對"]
-    if not patient_response_1 or not any(kw in patient_response_1 for kw in identity_positive):
-        print(f"✗ 病患否認身份或回覆不符")
+    _log("🔊", f"語音播放: 「{q1}」")
+    _speak_and_wait(q1)
+
+    resp1 = listen_skill() or ""
+    _log("🗣️", f"病患回覆: 「{resp1}」")
+    rr.log("workflow/identity_check/voice_q1",
+           rr.TextDocument(f"Q: {q1}\nA: {resp1}"))
+
+    # Updated identity keywords
+    identity_positive = ["是我是", "我是", "是的", "對", "是我", "沒錯", "是不是", "對的"]
+    if not resp1 or not any(kw in resp1 for kw in identity_positive):
+        _log("✗", "病患否認身份或回覆不符")
         return {
-            "identity_verified": False,
-            "task_status": "identity_check_failed",
-            "errors": [f"身份確認失敗: 病患語音回覆身份不符 ({patient_response_1})"],
-            "history": [f"✗ 身份確認失敗: 病患回覆「{patient_response_1}」"],
-            "executed_nodes": ["check_patient_identity"]
+            "task_status": "identity_failed",
+            "identity_check_retries": retries + 1,
+            "history": [f"✗ 身份確認失敗 (第 {retries + 1} 次): 病患回覆「{resp1}」"],
         }
 
-    # 4. Voice confirmation for medication awareness
+    # 2. Voice confirmation — medication awareness
     q2 = f"請問您知道您需要服用{medication_name}嗎？ 請明確的回答，知道，或不知道"
-    print(f"\n🔊 語音播放: 「{q2}」")
-    speak_skill(q2)
-    
-    patient_response_2 = listen_skill()
-    print(f"🗣️ 病患回覆: 「{patient_response_2}」")
-    
-    med_positive = ["知道", "了解", "知道的", "嗯"]
-    if not patient_response_2 or not any(kw in patient_response_2 for kw in med_positive):
-        print(f"✗ 病患對藥物認知不足")
+    _log("🔊", f"語音播放: 「{q2}」")
+    _speak_and_wait(q2)
+
+    resp2 = listen_skill() or ""
+    _log("🗣️", f"病患回覆: 「{resp2}」")
+    rr.log("workflow/identity_check/voice_q2",
+           rr.TextDocument(f"Q: {q2}\nA: {resp2}"))
+
+    # Updated medication awareness keywords
+    med_positive = ["知道", "了解", "知道的", "嗯", "好", "是的", "沒錯", "好的", "知道了", "嗯恩"]
+    if not resp2 or not any(kw in resp2 for kw in med_positive):
+        _log("✗", "病患對藥物認知不足")
         return {
-            "identity_verified": False,
-            "task_status": "identity_check_failed",
-            "errors": [f"用藥認知確認失敗: 病患對藥物 {medication_name} 認知不足 ({patient_response_2})"],
-            "history": [f"✗ 用藥認知確認失敗: 病患回覆「{patient_response_2}」"],
-            "executed_nodes": ["check_patient_identity"]
+            "task_status": "med_awareness_failed",
+            "identity_check_retries": retries + 1,
+            "history": [f"✗ 用藥認知確認失敗 (第 {retries + 1} 次): 病患回覆「{resp2}」"],
         }
 
-    # 5. All checks passed — hand off medication
-    print(f"\n✓ 身份與用藥認知確認完成")
-    print(f"  - 病患: {patient_name}")
-    print(f"  - 病房: {patient_info['room']}")
-    print(f"  - 藥物: {medication_name}")
-    
-    msg_handoff = f"謝謝您，請拿取藥物。"
-    print(f"\n🔊 語音播放: 「{msg_handoff}」")
-    speak_skill(msg_handoff)
-    
-    print(f"\n🤝 遞交藥物中...")
-    handoff_result = MockRobotActions.handoff_medication()
-    print(f"✓ {handoff_result['message']}")
-    
+    # 3. All checks passed — hand off medication
+    _log("✓", f"身份與用藥認知確認完成 — 病患: {patient_name}, 藥物: {medication_name}")
+
+    msg_handoff = "謝謝您，請拿取藥物。"
+    _log("🔊", f"語音播放: 「{msg_handoff}」")
+    _speak_and_wait(msg_handoff)
+
+    _log("🤝", "遞交藥物中...")
+    handover_skill()
+    _log("✓", "藥物已成功遞交")
+
     confirmation = f"給藥任務已全數完成，{patient_name} 的 {medication_name} 已安全送達。祝您早日康復！"
-    print(f"🔊 語音播放: 「{confirmation}」")
-    speak_skill(confirmation)
-    
+    _log("🔊", f"語音播放: 「{confirmation}」")
+    _speak_and_wait(confirmation)
+
     return {
         "identity_verified": True,
         "task_status": "delivered",
         "history": [
-            f"✓ 人臉辨識通過",
-            f"✓ 語音身份確認通過",
-            f"✓ 用藥認知確認通過",
-            f"✓ 藥物已遞交給 {patient_name}"
+            "✓ 語音身份確認通過",
+            "✓ 用藥認知確認通過",
+            f"✓ 藥物已遞交給 {patient_name}",
         ],
-        "executed_nodes": ["check_patient_identity"]
+        "executed_nodes": [node],
     }
 
 
 def error_handler_node(state: AgentState) -> dict:
     """Handle errors and request human intervention."""
-    print(f"\n{'='*60}")
-    print(f"⚠️  錯誤處理: 任務中斷")
-    print(f"{'='*60}")
-    
-    print(f"\n錯誤訊息:")
+    _log_node_entry("handle_error", state)
+    _section("⚠️", "錯誤處理: 任務中斷")
     for error in state.get('errors', []):
-        print(f"  - {error}")
-    
-    print(f"\n🆘 請求人工協助...")
-    
+        _log("  -", error)
+    _log("🆘", "請求人工協助...")
+
     return {
         "task_status": "failed",
         "history": ["✗ 任務失敗，已請求人工協助"],
-        "executed_nodes": ["handle_error"]
+        "executed_nodes": ["handle_error"],
+    }
+
+
+def return_to_origin_node(state: AgentState) -> dict:
+    """Navigate robot back to the origin (charging dock) after task completion or failure."""
+    _log_node_entry("return_to_origin", state)
+    current_loc = state.get("current_location", "charging_dock")
+
+    if current_loc == "charging_dock":
+        _log("✓", "機器人已在原點，無需移動")
+        return {
+            "history": ["✓ 機器人已在原點"],
+            "executed_nodes": ["return_to_origin"],
+        }
+
+    _section("🏠", f"返回原點: 從 {current_loc} 導航回充電座")
+    navigate_skill("origin")
+
+    _log("✓", "已返回原點")
+    return {
+        "current_location": "charging_dock",
+        "history": [f"✓ 從 {current_loc} 返回原點"],
+        "executed_nodes": ["return_to_origin"],
     }
 
 
 # --- Conditional Edge Functions ---
 
-def should_continue_after_parsing(state: AgentState) -> str:
-    """Determine next step after NLU parsing."""
-    if state.get('task_status') == 'parsed':
-        return "nav_to_pharmacy"
-    else:
-        return "handle_error"
+def _route_or_error(state: AgentState, ok_status: str, next_node: str) -> str:
+    """Generic router: go to next_node if status matches, else error."""
+    return next_node if state.get('task_status') == ok_status else "handle_error"
+
+
+def should_continue_after_confirm(state: AgentState) -> str:
+    return _route_or_error(state, "task_confirmed", "nav_to_pharmacy")
 
 
 def should_continue_after_pickup(state: AgentState) -> str:
-    """Determine next step after medication pickup attempt."""
-    if state.get('target_detected', False) and state.get('task_status') == 'med_picked':
-        return "delivery"
-    else:
-        return "handle_error"
+    if state.get('target_detected') and state.get('task_status') == 'med_picked':
+        return "nav_to_patient"
+    return "handle_error"
+
+
+def should_continue_after_nav_to_patient(state: AgentState) -> str:
+    return _route_or_error(state, "at_patient_room", "delivery")
 
 
 def should_continue_after_delivery(state: AgentState) -> str:
-    """Determine next step after navigating to patient room."""
-    if state.get('task_status') == 'at_patient_room':
-        return "check_patient_identity"
-    else:
-        return "handle_error"
+    return _route_or_error(state, "ready_for_identity_check", "check_patient_identity")
 
 
 def should_continue_after_identity(state: AgentState) -> str:
-    """Determine next step after identity check."""
-    if state.get('task_status') == 'delivered':
-        return END
-    else:
-        return "handle_error"
+    status = state.get('task_status')
+    if status == 'delivered':
+        return "return_to_origin"
+    
+    # Retry logic
+    if state.get('identity_check_retries', 0) < 3:
+        _log("🔁", f"身份確認失敗，準備進行第 {state.get('identity_check_retries', 0) + 1} 次重試...")
+        return "check_patient_identity"
+    
+    return "handle_error"
 
 
 # --- Workflow Construction ---
 
 def create_medication_delivery_workflow() -> StateGraph:
     """Create and compile the medication delivery workflow graph."""
-    
     workflow = StateGraph(AgentState)
-    
-    # Add nodes
-    # workflow.add_node("pending", pending_node)
-    workflow.add_node("nlu_parser", nlu_parser_node)
+
+    # Nodes
+    workflow.add_node("confirm_task", confirm_task_node)
     workflow.add_node("nav_to_pharmacy", navigate_to_pharmacy_node)
     workflow.add_node("pickup_med", pickup_medication_node)
+    workflow.add_node("nav_to_patient", navigate_to_patient_node)
     workflow.add_node("delivery", deliver_to_patient_node)
-    workflow.add_node("handle_error", error_handler_node)
     workflow.add_node("check_patient_identity", check_patient_identity_node)
-    
-    # Set entry point
-    workflow.set_entry_point("nlu_parser")
-    
-    # Add conditional edges
-    workflow.add_conditional_edges(
-        "nlu_parser",
-        should_continue_after_parsing,
-        {
-            "nav_to_pharmacy": "nav_to_pharmacy",
-            "handle_error": "handle_error"
-        }
-    )
-    
+    workflow.add_node("handle_error", error_handler_node)
+    workflow.add_node("return_to_origin", return_to_origin_node)
+
+    # Entry
+    workflow.set_entry_point("confirm_task")
+
+    # Edges
+    workflow.add_conditional_edges("confirm_task", should_continue_after_confirm,
+                                   {"nav_to_pharmacy": "nav_to_pharmacy", "handle_error": "handle_error"})
     workflow.add_edge("nav_to_pharmacy", "pickup_med")
-    
-    workflow.add_conditional_edges(
-        "pickup_med",
-        should_continue_after_pickup,
-        {
-            "delivery": "delivery",
-            "handle_error": "handle_error"
-        }
-    )
-    
-    workflow.add_conditional_edges(
-        "delivery",
-        should_continue_after_delivery,
-        {
-            "check_patient_identity": "check_patient_identity",
-            "handle_error": "handle_error"
-        }
-    )
-    
-    workflow.add_conditional_edges(
-        "check_patient_identity",
-        should_continue_after_identity,
-        {
-            END: END,
-            "handle_error": "handle_error"
-        }
-    )
-    
-    workflow.add_edge("handle_error", END)
-    
+    workflow.add_conditional_edges("pickup_med", should_continue_after_pickup,
+                                   {"nav_to_patient": "nav_to_patient", "handle_error": "handle_error"})
+    workflow.add_conditional_edges("nav_to_patient", should_continue_after_nav_to_patient,
+                                   {"delivery": "delivery", "handle_error": "handle_error"})
+    workflow.add_conditional_edges("delivery", should_continue_after_delivery,
+                                   {"check_patient_identity": "check_patient_identity", "handle_error": "handle_error"})
+    workflow.add_conditional_edges("check_patient_identity", should_continue_after_identity,
+                                   {"return_to_origin": "return_to_origin", 
+                                    "check_patient_identity": "check_patient_identity",
+                                    "handle_error": "handle_error"})
+    workflow.add_edge("handle_error", "return_to_origin")
+    workflow.add_edge("return_to_origin", END)
+
     return workflow.compile()
-
-
 
 
 class MedicationDeliveryAgent:
     """Agent for executing medication delivery tasks."""
-    
+
     def __init__(self):
-        """Initialize the medication delivery agent."""
         self.app = create_medication_delivery_workflow()
-    
-    def execute(self, instruction: str) -> dict:
-        """Execute a medication delivery task.
+
+    def _build_initial_state(self, patient_name: str, medication_name: str) -> AgentState:
+        """Build the initial AgentState dict."""
+        return {
+            "patient_name": patient_name,
+            "medication_name": medication_name,
+            "current_location": "charging_dock",
+            "task_status": "initialized",
+            "target_detected": False,
+            "identity_verified": False,
+            "identity_check_retries": 0,
+            "errors": [],
+            "history": [],
+            "executed_nodes": [],
+        }
+
+    def _print_summary(self, final_state: dict, execution_time: float):
+        """Print execution summary to console and rerun."""
+        logger.info(f"\n{'#'*60}\n# 任務執行摘要\n{'#'*60}")
+        logger.info(f"最終狀態: {final_state['task_status']}")
+        logger.info(f"執行時間: {execution_time:.2f} 秒")
+        logger.info("執行歷程:")
+        for entry in final_state.get('history', []):
+            logger.info(f"  {entry}")
+        if final_state.get('errors'):
+            logger.warning("錯誤記錄:")
+            for error in final_state['errors']:
+                logger.warning(f"  ✗ {error}")
+        status_icon = "✅" if final_state['task_status'] == 'delivered' else "❌"
+        status_text = "給藥任務完成！" if final_state['task_status'] == 'delivered' else "給藥任務失敗"
+        logger.info(f"{status_icon} {status_text}")
+
+        # Log summary to rerun
+        summary_lines = final_state.get('history', [])
+        rr.log("workflow/summary", rr.TextDocument(
+            f"status: {final_state['task_status']}\n"
+            f"time: {execution_time:.2f}s\n"
+            + "\n".join(summary_lines)
+        ))
+
+    def execute(self, patient_name: str, medication_name: str) -> dict:
+        """Execute a medication delivery task (blocking)."""
+        global _rr_initialized
+        if not _rr_initialized:
+            rr.init("medication_delivery", spawn=False)
+            _rr_initialized = True
+            # Log a small heartbeat to ENSURE the recording has data
+            rr.log("workflow/heartbeat", rr.TextLog("Execution started", level="DEBUG"))
+
+        _setup_cure_loggers()
         
-        Args:
-            instruction: Voice command for medication delivery
-            
-        Returns:
-            Final state after workflow execution
-        """
-        # Start MLflow run for tracking
-        with mlflow.start_run():
-            start_time = time.time()
-            
-            # Log input parameters
-            mlflow.log_param("instruction", instruction)
-            mlflow.set_tag("agent_type", "medication_delivery")
-            mlflow.set_tag("robot_model", "HelloRobot_Stretch")
-            
-            print(f"\n{'#'*60}")
-            print(f"# 給藥任務開始")
-            print(f"{'#'*60}")
-            
-            # Initialize state
-            initial_state = {
-                "instruction": instruction,
-                "patient_name": "",
-                "medication_name": "",
-                "current_location": "charging_dock",
-                "task_status": "initialized",
-                "target_detected": False,
-                "identity_verified": False,
-                "errors": [],
-                "history": [],
-                "executed_nodes": []
-            }
-            
-            # Run workflow
+        start_time = time.time()
+        logger.info(f"\n{'#'*60}\n# 給藥任務開始\n{'#'*60}")
+
+        initial_state = self._build_initial_state(patient_name, medication_name)
+        try:
             final_state = self.app.invoke(initial_state)
+        except KeyboardInterrupt:
+            logger.warning("任務被使用者手動中斷 (KeyboardInterrupt)")
+            final_state = initial_state # use initial state or intermediate if possible, but invoke doesn't give us intermediate easily without using stream
+            final_state["task_status"] = "interrupted"
+            final_state["history"].append("⚠️ 任務被手動中斷")
             
-            # Calculate execution time
-            execution_time = time.time() - start_time
-            
-            # Log execution details
-            mlflow.log_params({
-                "patient_name": final_state.get('patient_name', 'N/A'),
-                "medication_name": final_state.get('medication_name', 'N/A'),
-                "final_location": final_state.get('current_location', 'unknown')
-            })
-            
-            # Log metrics
-            task_success = 1 if final_state['task_status'] == 'delivered' else 0
-            mlflow.log_metrics({
-                "task_success": task_success,
-                "execution_time_seconds": execution_time,
-                "error_count": len(final_state.get('errors', [])),
-                "workflow_steps": len(final_state.get('history', [])),
-                "target_detected": int(final_state.get('target_detected', False)),
-                "identity_verified": int(final_state.get('identity_verified', False))
-            })
-            
-            # Log final status as tag
-            mlflow.set_tag("final_status", final_state['task_status'])
-            
-            # Save final state as artifact
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".json", prefix="final_state_", delete=False
-            ) as f:
-                json.dump(final_state, f, indent=2, ensure_ascii=False)
-                artifact_path = f.name
-            mlflow.log_artifact(artifact_path)
-            os.remove(artifact_path)
-            
-            # Print summary
-            print(f"\n{'#'*60}")
-            print(f"# 任務執行摘要")
-            print(f"{'#'*60}")
-            print(f"\n最終狀態: {final_state['task_status']}")
-            print(f"執行時間: {execution_time:.2f} 秒")
-            print(f"\n執行歷程:")
-            for entry in final_state.get('history', []):
-                print(f"  {entry}")
-            
-            if final_state.get('errors'):
-                print(f"\n錯誤記錄:")
-                for error in final_state['errors']:
-                    print(f"  ✗ {error}")
-            
-            if final_state['task_status'] == 'delivered':
-                print(f"\n✅ 給藥任務完成！")
-            else:
-                print(f"\n❌ 給藥任務失敗")
-            
-            print(f"\n📊 MLflow Run ID: {mlflow.active_run().info.run_id}")
-            print(f"\n{'#'*60}\n")
-            
-            return final_state
+        self._print_summary(final_state, time.time() - start_time)
+
+        # Ensure all data is flushed to the buffer before saving
+        rrd_path = RERUN_LOG_DIR / f"medication_delivery_{patient_name}_{int(time.time())}.rrd"
+        rr.save(str(rrd_path))
+        logger.info(f"Rerun log saved to {rrd_path}")
+        
+        return final_state
+
+    def stream_execute(
+        self, patient_name: str, medication_name: str
+    ) -> Generator[Tuple[str, str, dict], None, None]:
+        """Execute workflow with per-node streaming.
+
+        Yields (event_type, node_id, state_snapshot) tuples:
+          - ("node_start", node_id, {executed_nodes so far})
+          - ("node_end",   node_id, {executed_nodes so far, history, ...})
+          - ("done",        "",      {full final state})
+        """
+        if not _rr_initialized:
+            rr.init("medication_delivery", spawn=False)
+        _setup_cure_loggers()
+
+        start_time = time.time()
+        logger.info(f"\n{'#'*60}\n# 給藥任務開始 (streaming)\n{'#'*60}")
+
+        initial_state = self._build_initial_state(patient_name, medication_name)
+        executed_nodes: list[str] = []
+        final_state = dict(initial_state)
+
+        try:
+            for chunk in self.app.stream(initial_state):
+                # chunk is {node_name: state_update_dict}
+                for node_id, state_update in chunk.items():
+                    # Emit node_start
+                    yield ("node_start", node_id, {
+                        "executed_nodes": list(executed_nodes),
+                    })
+
+                    # Merge state update
+                    final_state.update(state_update)
+                    # Track executed nodes from the update
+                    new_nodes = state_update.get("executed_nodes", [])
+                    executed_nodes.extend(new_nodes)
+                    final_state["executed_nodes"] = list(executed_nodes)
+
+                    # Emit node_end
+                    yield ("node_end", node_id, {
+                        "executed_nodes": list(executed_nodes),
+                        "history": state_update.get("history", []),
+                        "task_status": state_update.get("task_status", ""),
+                    })
+        except KeyboardInterrupt:
+            logger.warning("任務被使用者手動中斷 (KeyboardInterrupt)")
+            final_state["task_status"] = "interrupted"
+            final_state["history"].append("⚠️ 任務被手動中斷")
+
+        self._print_summary(final_state, time.time() - start_time)
+
+        rrd_path = RERUN_LOG_DIR / f"medication_delivery_{patient_name}_{int(time.time())}.rrd"
+        rr.save(str(rrd_path))
+        logger.info(f"Rerun log saved to {rrd_path}")
+        yield ("done", "", final_state)
 
 
 # --- CLI for Testing ---
 
 if __name__ == "__main__":
     import sys
-    
-    # Example instructions
+
+    # Initialize Rerun here so the viewer can connect to this recording
+    rr.init("medication_delivery", spawn=False)
+    _rr_initialized = True
+
+    # Spawn native viewer (better CJK font support than web viewer)
+    try:
+        rr.spawn()
+    except Exception as e:
+        logger.warning(f"Could not start Rerun viewer: {e}")
+
     examples = [
-        "請將阿斯匹靈送給張小明",
-        "Deliver Aspirin to John Smith",
-        "請將普拿疼送給李美華",
-        "請將維他命C送給王大同"
+        ("張小明", "阿斯匹靈"),
+        ("李美華", "普拿疼"),
+        ("王大同", "維他命C"),
     ]
-    
-    if len(sys.argv) > 1:
-        # Use command line argument
-        instruction = " ".join(sys.argv[1:])
+
+    if len(sys.argv) >= 3:
+        p_name, m_name = sys.argv[1], sys.argv[2]
     else:
-        # Use first example
-        print("使用範例指令，您也可以用 --instruction 參數指定自訂指令\n")
-        instruction = examples[0]
-    
-    # Create agent and execute
+        logger.info("使用範例指令，您也可以用: python medication_delivery.py <病患> <藥物>")
+        p_name, m_name = examples[0]
+
     agent = MedicationDeliveryAgent()
-    result = agent.execute(instruction)
-    
-    # Print available examples
-    print("\n可用的測試指令範例:")
-    for i, example in enumerate(examples, 1):
-        print(f"  {i}. {example}")
+    result = agent.execute(p_name, m_name)
+
+    logger.info("可用的測試指令範例:")
+    for i, (p, m) in enumerate(examples, 1):
+        logger.info(f"  {i}. {p} — {m}")

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { type RobotId, taskData } from "@/lib/mock-data"
 import { ConnectPanel } from "@/components/connect-panel"
 import { SkillsPanel } from "@/components/skills-panel"
@@ -11,9 +11,29 @@ import { useWorkflow } from "@/hooks/use-workflow"
 
 export function RobotDashboard() {
   const [selectedRobot, setSelectedRobot] = useState<RobotId>("stretch3")
-  const [executedNodes, setExecutedNodes] = useState<string[]>([])
   const data = taskData[selectedRobot]
-  const { nodes, edges, isLoading, isLive } = useWorkflow(selectedRobot, executedNodes)
+  const {
+    nodes,
+    edges,
+    skillsData,
+    isLoading,
+    isLive,
+    isExecuting,
+    activeNodeId,
+    executionLog,
+    progress,
+    resetWorkflow,
+    startStreamExecution,
+    stopStreamExecution,
+  } = useWorkflow(selectedRobot)
+
+  const logContainerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
+    }
+  }, [executionLog])
 
   return (
     <div className="flex min-h-screen flex-col bg-background p-4 lg:p-6">
@@ -35,6 +55,7 @@ export function RobotDashboard() {
               selectedRobot={selectedRobot}
               onSelectRobot={setSelectedRobot}
               data={data}
+              skillsData={skillsData}
             />
           </div>
 
@@ -44,7 +65,17 @@ export function RobotDashboard() {
               <h2 className="font-mono text-sm font-medium tracking-wide text-foreground">
                 TASK &mdash; LANGGRAPH
               </h2>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2">
+                {/* Reset button */}
+                <button
+                  onClick={resetWorkflow}
+                  disabled={isExecuting}
+                  className="rounded border border-border px-2 py-0.5 font-mono text-[9px] text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:opacity-30"
+                  title="Reset graph state"
+                >
+                  ↺ RESET
+                </button>
+
                 {isLoading ? (
                   <span className="font-mono text-[10px] text-muted-foreground">loading…</span>
                 ) : isLive ? (
@@ -60,53 +91,80 @@ export function RobotDashboard() {
                 )}
               </div>
             </div>
+
+            {/* Progress bar */}
+            {isExecuting && (
+              <div className="mb-2">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-mono text-[9px] text-muted-foreground">PROGRESS</span>
+                  <span className="font-mono text-[9px] text-muted-foreground">{progress}%</span>
+                </div>
+                <div className="h-1 w-full rounded-full bg-border overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-700 ease-out"
+                    style={{
+                      width: `${progress}%`,
+                      background: "linear-gradient(90deg, rgba(56,189,248,0.8), rgba(99,102,241,0.8))",
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
             <div className="h-[420px] overflow-auto rounded-md border border-border bg-background/50">
               <WorkflowGraph
                 nodes={nodes}
                 edges={edges}
+                activeNodeId={activeNodeId}
               />
             </div>
           </div>
 
           {/* Required Skills */}
           <div className="rounded-md border border-border bg-card p-4">
-            <SkillsPanel data={data} />
+            <SkillsPanel skillsData={skillsData} />
           </div>
         </div>
 
-        {/* Bottom row: Operation Mode + 3D View | Video streaming */}
+        {/* Bottom row: Operation Mode + Execution Log | Video streaming */}
         <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-          {/* Left: Operation Mode + Main View */}
+          {/* Left: Operation Mode + Execution Log */}
           <div className="flex flex-col gap-4">
             {/* Operation Mode panel */}
             <div className="rounded-md border border-border bg-card p-4">
-              <ModeToggle onExecutionResult={(res) => setExecutedNodes(res.executed_nodes)} />
+              <ModeToggle
+                isExecuting={isExecuting}
+                onStreamRun={startStreamExecution}
+                onStreamStop={stopStreamExecution}
+              />
             </div>
 
-            {/* 3D view / main camera */}
+            {/* Execution Log */}
             <div className="rounded-md border border-border bg-card p-4">
               <h2 className="mb-3 font-mono text-sm font-medium tracking-wide text-foreground">
-                MAIN VIEW
+                EXECUTION LOG
               </h2>
-              <div className="flex aspect-video items-center justify-center rounded-md border border-dashed border-border bg-muted/10">
-                <div className="text-center">
-                  <svg
-                    className="mx-auto h-10 w-10 text-muted-foreground/30"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={0.75}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M21 7.5l-2.25-1.313M21 7.5v2.25m0-2.25l-2.25 1.313M3 7.5l2.25-1.313M3 7.5l2.25 1.313M3 7.5v2.25m9 3l2.25-1.313M12 12.75l-2.25-1.313M12 12.75V15m0 6.75l2.25-1.313M12 21.75V19.5m0 2.25l-2.25-1.313m0-16.875L12 2.25l2.25 1.313M21 14.25v2.25l-2.25 1.313m-13.5 0L3 16.5v-2.25"
-                    />
-                  </svg>
-                  <p className="mt-2 font-mono text-xs text-muted-foreground/40">
-                    3D View / Camera Feed
-                  </p>
-                </div>
+              <div ref={logContainerRef} className="h-[200px] overflow-auto rounded-md border border-border bg-background/50 p-3">
+                {executionLog.length === 0 ? (
+                  <p className="font-mono text-xs text-muted-foreground/40">No execution history</p>
+                ) : (
+                  <div className="flex flex-col gap-0.5">
+                    {executionLog.map((entry, i) => (
+                      <div
+                        key={i}
+                        className={`whitespace-pre-wrap font-mono text-[11px] leading-[1.5] ${
+                          entry.includes("✗") || entry.includes("WARNING") || entry.includes("ERROR") || entry.includes("failed")
+                            ? "text-red-400"
+                            : entry.includes("✓") || entry.includes("▶") || entry.includes("✅")
+                              ? "text-emerald-400"
+                              : "text-muted-foreground"
+                        }`}
+                      >
+                        {entry}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>

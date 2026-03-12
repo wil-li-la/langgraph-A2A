@@ -101,8 +101,8 @@ def main(host: str, port: int):
             description='HelloRobot Stretch autonomous medication delivery system powered by LangGraph',
             url=f'http://{host}:{port}/',
             version='1.0.0',
-            default_input_modes=['text', 'text/plain'],
-            default_output_modes=['text', 'text/plain'],
+            defaultInputModes=['text', 'text/plain'],
+            defaultOutputModes=['text', 'text/plain'],
             capabilities=capabilities,
             skills=[medication_delivery_skill],
         )

@@ -11,9 +11,8 @@ graph TB
     Server --> Executor["AgentExecutor<br/>agent_executor.py"]
     Executor --> Agent["MedicationDeliveryAgent<br/>medication_delivery.py"]
     Agent --> Graph["LangGraph StateGraph"]
-    Agent --> MLflow["MLflow Tracking"]
     Graph --> Nodes["Node Functions"]
-    Nodes --> Mocks["MockDB / MockRobot / MockNLU<br/>mock_data.py"]
+    Nodes --> Mocks["MockDB / MockRobot<br/>mock_data.py"]
 ```
 
 ## Module Structure
@@ -27,7 +26,7 @@ app/
 └── healthcare/
     ├── __init__.py              # Public exports
     ├── medication_delivery.py   # StateGraph + nodes + agent class
-    └── mock_data.py             # Mock database, robot, NLU
+    └── mock_data.py             # Mock database, robot actions
 ```
 
 ## API Endpoints
@@ -53,12 +52,12 @@ app/
 ```json
 {
   "nodes": [
-    { "id": "nlu_parser", "name": "nlu_parser", "label": "nlu_parser_node", "type": "process", "status": "pending" },
-    { "id": "nav_to_pharmacy", "name": "nav_to_pharmacy", "label": "navigate_to_pharmacy_node", "type": "process", "status": "pending" }
+    { "id": "nav_to_pharmacy", "name": "nav_to_pharmacy", "label": "navigate_to_pharmacy_node", "type": "process", "status": "pending" },
+    { "id": "pickup_med", "name": "pickup_med", "label": "pickup_medication_node", "type": "process", "status": "pending" }
   ],
   "edges": [
-    { "from": "__start__", "to": "nlu_parser" },
-    { "from": "nlu_parser", "to": "nav_to_pharmacy" }
+    { "from": "__start__", "to": "nav_to_pharmacy" },
+    { "from": "nav_to_pharmacy", "to": "pickup_med" }
   ]
 }
 ```
@@ -66,24 +65,23 @@ app/
 ## LangGraph Workflow
 
 ```
-[Start] → nlu_parser → nav_to_pharmacy → pickup_med → delivery → check_patient_identity → [End]
-              ↓                                ↓
-         handle_error ←──────────────── handle_error
-              ↓
-            [End]
+[Start] → nav_to_pharmacy → pickup_med → delivery → check_patient_identity → [End]
+                                 ↓            ↓               ↓
+                            handle_error ← handle_error ← handle_error
+                                 ↓
+                               [End]
 ```
 
 ### State Definition (`AgentState`)
 
 | Field | Type | Description |
 |---|---|---|
-| `instruction` | `str` | Original voice command |
-| `patient_name` | `str` | Parsed patient name |
-| `medication_name` | `str` | Parsed medication name |
+| `patient_name` | `str` | Target patient name |
+| `medication_name` | `str` | Medication to deliver |
 | `current_location` | `str` | Robot's current location |
 | `task_status` | `str` | Current workflow status |
-| `target_detected` | `bool` | Medication found by vision |
-| `identity_verified` | `bool` | Patient face verified |
+| `target_detected` | `bool` | Medication detected and grasped |
+| `identity_verified` | `bool` | Patient identity verified via voice |
 | `errors` | `List[str]` | Accumulated errors (reducer: append) |
 | `history` | `List[str]` | Execution log (reducer: append) |
 
@@ -95,24 +93,25 @@ app/
 | `model_source` | No | `google` | LLM provider (`google` / `openai`) |
 | `GOOGLE_API_KEY` | No* | — | Gemini API key |
 | `OPENAI_API_KEY` | No* | — | OpenAI API key |
-| `MLFLOW_TRACKING_URI` | No | `file:./mlruns` | MLflow tracking location |
 
 *API keys optional for demo mode with mock data.
 
 ## Quick Start
 
 ```bash
-# Install
+# Create venv (Python 3.12+)
+python3.12 -m venv .venv
+source .venv/bin/activate
+
+# Install (cure needs --no-deps due to stretch3-zmq-core)
+pip install --no-deps "cure @ git+https://github.com/lnfu/cure.git@no-detection"
 pip install -e .
 
 # Run
 python -m app --host 0.0.0.0 --port 9999
 
 # Test CLI directly
-python -m app.healthcare.medication_delivery "請將阿斯匹靈送給張小明"
-
-# MLflow dashboard
-mlflow ui --port 5001
+python -m app.healthcare.medication_delivery 張小明 阿斯匹靈
 ```
 
 ## Docker

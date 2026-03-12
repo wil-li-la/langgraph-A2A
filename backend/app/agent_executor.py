@@ -20,6 +20,7 @@ from a2a.utils import (
 from a2a.utils.errors import ServerError
 
 from app.healthcare import MedicationDeliveryAgent
+from app.healthcare.mock_data import MockNLU
 
 
 logging.basicConfig(level=logging.INFO)
@@ -67,6 +68,20 @@ class MedicationAgentExecutor(AgentExecutor):
         try:
             logger.info(f"Executing medication delivery: {query}")
             
+            # Parse instruction into patient_name + medication_name
+            parsed = MockNLU.parse_instruction(query)
+            if not parsed["success"]:
+                await updater.update_status(
+                    TaskState.input_required,
+                    new_agent_text_message(
+                        f"❌ {parsed['message']}",
+                        task.context_id,
+                        task.id,
+                    ),
+                    final=True,
+                )
+                return
+            
             # Send initial status
             await updater.update_status(
                 TaskState.working,
@@ -78,7 +93,7 @@ class MedicationAgentExecutor(AgentExecutor):
             )
             
             # Run medication delivery agent (synchronous)
-            result = self.medication_agent.execute(query)
+            result = self.medication_agent.execute(parsed["patient_name"], parsed["medication_name"])
             
             # Determine final status based on result
             if result['task_status'] == 'delivered':

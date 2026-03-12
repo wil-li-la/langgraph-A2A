@@ -11,6 +11,16 @@ export interface WorkflowData {
   edges: WorkflowEdge[]
 }
 
+export interface WorkflowData {
+  nodes: WorkflowNode[]
+  edges: WorkflowEdge[]
+}
+
+export interface SkillsData {
+  available: string[]
+  required: string[]
+}
+
 export interface ExecutionResult {
   task_status: string
   patient_name: string
@@ -21,6 +31,25 @@ export interface ExecutionResult {
   errors: string[]
   history: string[]
   executed_nodes: string[]
+}
+
+/** SSE event types emitted by the streaming endpoint. */
+export interface StreamEvent {
+  event: "node_start" | "node_end" | "done" | "error" | "log"
+  node_id?: string
+  executed_nodes?: string[]
+  history?: string[]
+  task_status?: string
+  result?: ExecutionResult
+  text?: string
+}
+
+export interface StreamCallbacks {
+  onNodeStart?: (nodeId: string, executedNodes: string[]) => void
+  onNodeEnd?: (nodeId: string, executedNodes: string[], history: string[]) => void
+  onDone?: (result: ExecutionResult) => void
+  onError?: (error: string) => void
+  onLog?: (text: string) => void
 }
 
 /**
@@ -51,7 +80,18 @@ export async function fetchWorkflow(): Promise<WorkflowData> {
 }
 
 /**
- * Execute a medication delivery workflow via the backend.
+ * Fetch available and required skills from the backend.
+ */
+export async function fetchSkills(): Promise<SkillsData> {
+  const res = await fetch(`${API_BASE}/api/skills`)
+  if (!res.ok) {
+    throw new Error(`Failed to fetch skills: ${res.status} ${res.statusText}`)
+  }
+  return res.json()
+}
+
+/**
+ * Execute a medication delivery workflow via the backend (one-shot).
  */
 export async function executeWorkflow(instruction: string): Promise<ExecutionResult> {
   const res = await fetch(`${API_BASE}/api/workflow/execute`, {
@@ -63,6 +103,88 @@ export async function executeWorkflow(instruction: string): Promise<ExecutionRes
     throw new Error(`Execution failed: ${res.status} ${res.statusText}`)
   }
   return res.json()
+}
+
+/**
+ * Execute a medication delivery workflow with real-time SSE streaming.
+ * Calls callbacks as each node starts/ends, returns final ExecutionResult.
+ */
+export async function executeWorkflowStream(
+  instruction: string,
+  callbacks: StreamCallbacks,
+  signal?: AbortSignal,
+): Promise<ExecutionResult> {
+  const res = await fetch(`${API_BASE}/api/workflow/execute/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ instruction }),
+    signal,
+  })
+
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Stream failed: ${res.status} ${body}`)
+  }
+
+  const reader = res.body?.getReader()
+  if (!reader) throw new Error("No readable stream")
+
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let finalResult: ExecutionResult | null = null
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+
+    // Parse SSE lines: "data: {...}\n\n"
+    const lines = buffer.split("\n\n")
+    buffer = lines.pop() ?? "" // keep the incomplete chunk
+
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed.startsWith("data: ")) continue
+
+      try {
+        const event: StreamEvent = JSON.parse(trimmed.slice(6))
+
+        switch (event.event) {
+          case "log":
+            if (event.text) {
+              callbacks.onLog?.(event.text)
+            }
+            break
+          case "node_start":
+            callbacks.onNodeStart?.(event.node_id ?? "", event.executed_nodes ?? [])
+            break
+          case "node_end":
+            callbacks.onNodeEnd?.(
+              event.node_id ?? "",
+              event.executed_nodes ?? [],
+              event.history ?? [],
+            )
+            break
+          case "done":
+            finalResult = event.result ?? null
+            callbacks.onDone?.(finalResult!)
+            break
+          case "error":
+            callbacks.onError?.(event.node_id ?? "Unknown error")
+            break
+        }
+      } catch {
+        // ignore malformed JSON
+      }
+    }
+  }
+
+  if (!finalResult) {
+    throw new Error("Stream ended without a 'done' event")
+  }
+
+  return finalResult
 }
 
 function mapNodeType(type: string): WorkflowNode["type"] {

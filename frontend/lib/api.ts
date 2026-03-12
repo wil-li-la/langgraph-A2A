@@ -4,7 +4,7 @@
 
 import type { WorkflowNode, WorkflowEdge } from "./mock-data"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9999"
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9999"
 
 export interface WorkflowData {
   nodes: WorkflowNode[]

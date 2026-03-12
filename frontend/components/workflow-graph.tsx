@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { WorkflowNode, WorkflowEdge } from "@/lib/mock-data"
 
 interface WorkflowGraphProps {
@@ -65,6 +65,7 @@ const STATUS_LABELS: Record<string, string> = {
 export function WorkflowGraph({ nodes, edges, activeNodeId }: WorkflowGraphProps) {
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   // Layout nodes in a vertical flow with branching
   const layout = useMemo(() => {
@@ -113,6 +114,27 @@ export function WorkflowGraph({ nodes, edges, activeNodeId }: WorkflowGraphProps
       height: maxY + SVG_PADDING + 10,
     }
   }, [nodes])
+
+  // Auto-scroll to active node
+  useEffect(() => {
+    if (!activeNodeId || !scrollContainerRef.current) return
+
+    const pos = layout.positions.get(activeNodeId)
+    if (!pos) return
+
+    const container = scrollContainerRef.current
+    const { offsetWidth, offsetHeight } = container
+
+    // Target position is centered
+    const targetX = pos.x - offsetWidth / 2
+    const targetY = pos.y - offsetHeight / 2
+
+    container.scrollTo({
+      left: targetX,
+      top: targetY,
+      behavior: "smooth",
+    })
+  }, [activeNodeId, layout])
 
   // Determine which edges are "active" (leading to the currently executing node)
   const activeEdges = useMemo(() => {
@@ -405,7 +427,7 @@ export function WorkflowGraph({ nodes, edges, activeNodeId }: WorkflowGraphProps
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex-1 overflow-auto">
+      <div ref={scrollContainerRef} className="flex-1 overflow-auto">
         <svg
           width={layout.width}
           height={layout.height}

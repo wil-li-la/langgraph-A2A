@@ -12,6 +12,15 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 
+from app.camera_api import (
+    stream_d405_rgb,
+    stream_d405_depth,
+    stream_d405_mix,
+    stream_d435if_rgb,
+    stream_d435if_depth,
+    stream_d435if_mix
+)
+
 from app.healthcare.medication_delivery import (
     MedicationDeliveryAgent,
     create_medication_delivery_workflow,
@@ -314,4 +323,10 @@ workflow_routes = [
     Route("/api/workflow/execute", execute_workflow, methods=["POST"]),
     Route("/api/workflow/execute/stream", execute_workflow_stream, methods=["POST"]),
     Route("/api/skills", get_skills, methods=["GET"]),
+    Route("/api/stream/d405/rgb", stream_d405_rgb, methods=["GET"]),
+    Route("/api/stream/d405/depth", stream_d405_depth, methods=["GET"]),
+    Route("/api/stream/d405/mix", stream_d405_mix, methods=["GET"]),
+    Route("/api/stream/d435if/rgb", stream_d435if_rgb, methods=["GET"]),
+    Route("/api/stream/d435if/depth", stream_d435if_depth, methods=["GET"]),
+    Route("/api/stream/d435if/mix", stream_d435if_mix, methods=["GET"]),
 ]

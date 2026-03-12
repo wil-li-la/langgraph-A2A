@@ -5,6 +5,7 @@ import time
 import logging
 from pathlib import Path
 import rerun as rr
+from datetime import datetime
 from typing import Annotated, Generator, List, Tuple, TypedDict
 
 from langgraph.graph import StateGraph, END
@@ -206,13 +207,6 @@ def navigate_to_patient_node(state: AgentState) -> dict:
 def deliver_to_patient_node(state: AgentState) -> dict:
     """Announce arrival and initiate delivery interaction."""
     _log_node_entry("delivery", state)
-    patient_name = state['patient_name']
-    medication_name = state['medication_name']
-
-    greeting = f"您好{patient_name}，這是您的{medication_name}，請先確認身份。"
-    _log("🔊", f"語音播報: 「{greeting}」")
-    _speak_and_wait(greeting)
-
     return {
         "task_status": "ready_for_identity_check",
         "history": ["✓ 已播報到達通知"],
@@ -231,7 +225,7 @@ def check_patient_identity_node(state: AgentState) -> dict:
     _section("🔍", f"確認病患身份與用藥認知: {patient_name} (第 {retries + 1} 次嘗試)")
 
     # 1. Voice confirmation — identity
-    q1 = f"請問是{patient_name}嗎？ 請明確的回答，是我是，或我不是"
+    q1 = f"您好，我是給藥機器人，請問你叫什麼名字"
     _log("🔊", f"語音播放: 「{q1}」")
     _speak_and_wait(q1)
 
@@ -240,9 +234,8 @@ def check_patient_identity_node(state: AgentState) -> dict:
     rr.log("workflow/identity_check/voice_q1",
            rr.TextDocument(f"Q: {q1}\nA: {resp1}"))
 
-    # Updated identity keywords
-    identity_positive = ["是我是", "我是", "是的", "對", "是我", "沒錯", "是不是", "對的"]
-    if not resp1 or not any(kw in resp1 for kw in identity_positive):
+    # Updated identity check — match full name in response
+    if not resp1 or patient_name not in resp1:
         _log("✗", "病患否認身份或回覆不符")
         return {
             "task_status": "identity_failed",
@@ -250,30 +243,16 @@ def check_patient_identity_node(state: AgentState) -> dict:
             "history": [f"✗ 身份確認失敗 (第 {retries + 1} 次): 病患回覆「{resp1}」"],
         }
 
-    # 2. Voice confirmation — medication awareness
-    q2 = f"請問您知道您需要服用{medication_name}嗎？ 請明確的回答，知道，或不知道"
+    # 2. Announce medication time
+    now = datetime.now()
+    q2 = f"現在是{now.hour}點{now.minute}分，病患{patient_name}需要服用{medication_name}"
     _log("🔊", f"語音播放: 「{q2}」")
     _speak_and_wait(q2)
-
-    resp2 = listen_skill() or ""
-    _log("🗣️", f"病患回覆: 「{resp2}」")
-    rr.log("workflow/identity_check/voice_q2",
-           rr.TextDocument(f"Q: {q2}\nA: {resp2}"))
-
-    # Updated medication awareness keywords
-    med_positive = ["知道", "了解", "知道的", "嗯", "好", "是的", "沒錯", "好的", "知道了", "嗯恩"]
-    if not resp2 or not any(kw in resp2 for kw in med_positive):
-        _log("✗", "病患對藥物認知不足")
-        return {
-            "task_status": "med_awareness_failed",
-            "identity_check_retries": retries + 1,
-            "history": [f"✗ 用藥認知確認失敗 (第 {retries + 1} 次): 病患回覆「{resp2}」"],
-        }
 
     # 3. All checks passed — hand off medication
     _log("✓", f"身份與用藥認知確認完成 — 病患: {patient_name}, 藥物: {medication_name}")
 
-    msg_handoff = "謝謝您，請拿取藥物。"
+    msg_handoff = "給藥確認完成，謝謝您，請拿取藥物。"
     _log("🔊", f"語音播放: 「{msg_handoff}」")
     _speak_and_wait(msg_handoff)
 

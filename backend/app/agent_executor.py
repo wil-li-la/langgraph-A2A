@@ -1,6 +1,7 @@
 """A2A protocol integration for medication delivery agent."""
 
 import logging
+import re
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
@@ -33,6 +34,43 @@ class MedicationAgentExecutor(AgentExecutor):
     def __init__(self):
         """Initialize the executor with medication delivery agent."""
         self.medication_agent = MedicationDeliveryAgent()
+
+    @staticmethod
+    def _is_capabilities_query(query: str) -> bool:
+        """Detect lightweight intro/capability questions."""
+        normalized = query.strip().lower()
+        if not normalized:
+            return False
+
+        # Keep this intentionally simple and conservative.
+        patterns = (
+            r"\bwhat do you do\b",
+            r"\bwhat can you do\b",
+            r"\bcapabilit(?:y|ies)\b",
+            r"\bintroduce yourself\b",
+            r"你會做什麼",
+            r"你可以做什麼",
+            r"你能做什麼",
+            r"你是誰",
+            r"介紹一下",
+            r"功能",
+        )
+        return any(re.search(pattern, normalized) for pattern in patterns)
+
+    @staticmethod
+    def _capabilities_response() -> str:
+        """Return a concise capability summary and usage examples."""
+        return (
+            "🤖 我是給藥服務代理（Medication Delivery Agent）。\n\n"
+            "我可以執行病房給藥流程：\n"
+            "1) 前往藥局拿藥\n"
+            "2) 導航到病患位置\n"
+            "3) 進行病患身分確認\n"
+            "4) 完成交付並回報結果\n\n"
+            "請用「病患 + 藥物」下指令，例如：\n"
+            "- 請將阿斯匹靈送給張小明\n"
+            "- Deliver Aspirin to John Smith"
+        )
     
     async def execute(
         self,
@@ -67,6 +105,16 @@ class MedicationAgentExecutor(AgentExecutor):
         
         try:
             logger.info(f"Executing medication delivery: {query}")
+
+            # Friendly response for intro/capability questions.
+            if self._is_capabilities_query(query):
+                response = self._capabilities_response()
+                await updater.add_artifact(
+                    [Part(root=TextPart(text=response))],
+                    name='capabilities_intro',
+                )
+                await updater.complete()
+                return
             
             # Parse instruction into patient_name + medication_name
             parsed = MockNLU.parse_instruction(query)

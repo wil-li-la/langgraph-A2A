@@ -35,10 +35,19 @@ app/
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/agent-card` | GET | Agent metadata and capabilities |
-| `/tasks` | POST | Execute a medication delivery task |
-| `/tasks/{id}` | GET | Get task status |
-| `/tasks/{id}/cancel` | POST | Cancel running task |
+| `/.well-known/agent-card.json` | GET | Agent metadata and capabilities (primary) |
+| `/.well-known/agent.json` | GET | Agent metadata and capabilities (legacy alias) |
+| `/` | POST | A2A JSON-RPC endpoint |
+
+#### A2A JSON-RPC methods
+
+| Method | Description |
+|---|---|
+| `message/send` | Execute medication delivery request and return task/result |
+
+#### Intro query behavior
+
+If the input is an introduction/capability question (for example `What can you do?` or `你會做什麼`), the agent returns a friendly capabilities summary as a completed task artifact (`result.artifacts[].parts[].text`) instead of a parse-error message.
 
 ### Workflow API (New)
 

@@ -46,7 +46,9 @@ docker-compose up -d
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/agent-card` | GET | A2A agent metadata |
+| `/.well-known/agent-card.json` | GET | A2A agent metadata (primary) |
+| `/.well-known/agent.json` | GET | A2A agent metadata (legacy alias) |
+| `/` | POST | A2A JSON-RPC endpoint (`message/send`) |
 | `/api/workflow` | GET | LangGraph graph structure (nodes + edges) |
 | `/api/workflow/execute` | POST | Trigger medication delivery workflow |
 

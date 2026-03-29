@@ -118,6 +118,30 @@ The driver publishes robot state at 15 Hz on port 5555. Robot hostname: `stretch
 
 Config lives on the robot at `Desktop/stretch3-zmq/config.yaml` — defines ports, TTS provider (fish_audio), ASR (deepgram, language: zh-TW, mic: DJI MIC MINI), and motion limits for all 8 joints.
 
+### TODO: Robot-side goto service (Nav2 obstacle avoidance)
+
+Port 5557 (goto, REQ/REP) **does not exist** in the current stretch3-zmq driver. It must be added to `stretch3-zmq` on the robot before `navigate_skill` can work.
+
+What to add in `stretch3-zmq`:
+
+1. **`driver/services/goto.py`** — new service:
+   - ZMQ REP socket on `config.ports.goto` (5557)
+   - Receives msgpack `{"x": float, "y": float, "theta": float}`
+   - Calls `nav2_simple_commander.BasicNavigator.goToPose()` with the goal
+   - Blocks until `navigator.isTaskComplete()`
+   - Sends reply: `"ok"` on success, error string on failure
+
+2. **`driver/__main__.py`** — start the service:
+   - Import `goto_service` and launch it as a `threading.Thread` (same pattern as other services)
+
+3. **`driver/config.py`** — ensure `ports.goto: int = 5557` is defined (may already be present)
+
+Nav2 must be running on the robot (`ros2 launch stretch_nav2 navigation.launch.py`) for the goto service to work.
+
+Mac-side navigate_skill already sends the correct `{"x", "y", "theta"}` msgpack format and waits for `"ok"`.
+
+---
+
 ### Key Config Notes
 
 - Backend Dockerfile: port 9999, non-root user `appuser`

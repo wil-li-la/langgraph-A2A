@@ -138,7 +138,7 @@ What to add in `stretch3-zmq`:
 
 Nav2 must be running on the robot (`ros2 launch stretch_nav2 navigation.launch.py`) for the goto service to work.
 
-Mac-side navigate_skill already sends the correct `{"x", "y", "theta"}` msgpack format and waits for `"ok"`.
+Mac-side `navigate_avoidance` in `cure/src/cure/skills/navigate.py` already sends the correct `{"x", "y", "theta"}` msgpack format and waits for `"ok"`. The original `navigate_skill` (direct velocity control) is unchanged.
 
 ---
 

@@ -15,7 +15,7 @@ from cure.config import update_config, Config
 from cure.skills.listen import listen_skill
 from cure.skills.speak import speak_skill, wait_for_speech_completion
 from cure.skills.handover import handover_skill
-from cure.skills.navigate import navigate_skill
+from cure.skills.navigate import navigate_avoidance, navigate_skill
 
 from app.healthcare.mock_data import MockDatabase, MockRobotActions
 
@@ -303,7 +303,9 @@ def return_to_origin_node(state: AgentState) -> dict:
             "executed_nodes": ["return_to_origin"],
         }
 
-    _section("🏠", f"返回原點: 從 {current_loc} 導航回充電座")
+    _section("🏠", f"返回原點: 從 {current_loc} 先導航至藥局，再回充電座")
+    navigate_skill("medicine")
+    _log("✓", "已到達藥局，繼續返回原點")
     navigate_skill("origin")
 
     _log("✓", "已返回原點")

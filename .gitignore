@@ -21,7 +21,6 @@ mlruns/
 
 # Temp & Data
 tmp_cure/
-backend/data/
 backend/.venv/
 .venv/
 

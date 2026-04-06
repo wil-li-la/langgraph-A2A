@@ -45,11 +45,12 @@ docker-compose up -d
 ### Backend (`backend/app/`)
 
 - **`__main__.py`** — CLI entry point. Builds the AgentCard, wires A2AStarletteApplication with DefaultRequestHandler, adds workflow REST routes, starts Uvicorn.
-- **`agent_executor.py`** — Bridges A2A protocol to LangGraph. `execute()` parses instructions via MockNLU, runs `MedicationDeliveryAgent`, returns artifacts. Special-cases capability query strings (Chinese/English).
-- **`workflow_api.py`** — REST endpoints for the dashboard:
+- **`agent_executor.py`** — Bridges A2A protocol to LangGraph. `execute()` parses instructions via MockNLU (with regex fallback + hardcoded defaults), runs `MedicationDeliveryAgent` in `mode="auto"`, returns artifacts. Special-cases capability query strings (Chinese/English).
+- **`workflow_api.py`** — REST endpoints for the dashboard and A2A callers:
   - `GET /api/workflow` — graph structure (nodes + edges)
-  - `POST /api/workflow/execute` — one-shot execution
+  - `POST /api/workflow/execute` — one-shot execution (manual mode, uses MockNLU)
   - `POST /api/workflow/execute/stream` — SSE streaming (node_start, node_end, log, done, error)
+  - `POST /api/a2a/execute` — structured A2A endpoint, body `{"patient": str, "medicine": str}`, skips NLU parsing, runs in auto mode
 - **`camera_api.py`** — Video streaming endpoints for robot cameras (D405, D435if).
 - **`healthcare/medication_delivery.py`** — The LangGraph `StateGraph`. 9 nodes (confirm_task → navigate_to_pharmacy → pickup_medication → navigate_to_patient → deliver → check_patient_identity → return_to_origin, with error_handler). Uses CURE robot skills (grasp, navigate, speak, listen, handover). Logs execution to Rerun.
 - **`healthcare/mock_data.py`** — Mock patient/medication database + MockNLU (bilingual Chinese/English pattern matching).
@@ -62,7 +63,7 @@ docker-compose up -d
 
 ### LangGraph State
 
-`AgentState` TypedDict — key fields: `patient_name`, `medication_name`, `current_location`, `task_status`, `target_detected`, `identity_verified`, `identity_check_retries`. List fields (`errors`, `history`, `executed_nodes`) use `operator.add` reducer for append semantics across nodes.
+`AgentState` TypedDict — key fields: `patient_name`, `medication_name`, `current_location`, `task_status`, `target_detected`, `identity_verified`, `identity_check_retries`, `mode` (`"auto"` for A2A / `"manual"` for dashboard). List fields (`errors`, `history`, `executed_nodes`) use `operator.add` reducer for append semantics across nodes.
 
 Conditional routing: confirm_task success → pharmacy path; any failure → error_handler_node → END. Identity check retries up to 3 times before failing.
 

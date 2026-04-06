@@ -152,6 +152,7 @@ def main(host: str, port: int):
         logger.info(f'Starting Medication Delivery A2A agent server on {host}:{port}')
         logger.info(f'Agent card available at: http://{host}:{port}/agent-card')
         logger.info(f'Workflow API available at: http://{host}:{port}/api/workflow')
+        logger.info(f'A2A direct endpoint: POST http://{host}:{port}/api/a2a/execute')
         
         # Run the server
         uvicorn.run(starlette_app, host=host, port=port)

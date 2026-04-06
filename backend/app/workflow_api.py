@@ -299,6 +299,49 @@ async def execute_workflow_stream(request: Request) -> StreamingResponse:
         )
 
 
+async def execute_a2a_direct(request: Request) -> JSONResponse:
+    """POST /api/a2a/execute — Execute workflow directly with structured JSON input.
+
+    Body: { "patient": "張雅安", "medicine": "drug a" }
+
+    Skips NLU parsing entirely — intended for A2A callers (e.g. Google ADK)
+    that already resolved patient and medication names.
+    """
+    try:
+        body = await request.json()
+        patient = body.get("patient", "").strip()
+        medicine = body.get("medicine", "").strip()
+
+        if not patient or not medicine:
+            return JSONResponse(
+                {"error": "Missing required fields: 'patient' and 'medicine'"},
+                status_code=400,
+            )
+
+        logger.info(f"A2A direct execute: patient={patient}, medicine={medicine}")
+
+        result = _agent.execute(patient, medicine, mode="auto")
+
+        return JSONResponse({
+            "task_status": result.get("task_status"),
+            "patient_name": result.get("patient_name"),
+            "medication_name": result.get("medication_name"),
+            "current_location": result.get("current_location"),
+            "target_detected": result.get("target_detected"),
+            "identity_verified": result.get("identity_verified"),
+            "errors": result.get("errors", []),
+            "history": result.get("history", []),
+            "executed_nodes": result.get("executed_nodes", []),
+        })
+
+    except Exception as e:
+        logger.error(f"A2A direct execution failed: {e}")
+        return JSONResponse(
+            {"error": str(e)},
+            status_code=500,
+        )
+
+
 async def get_skills(request: Request) -> JSONResponse:
     """Return available skills dynamically loaded from cure package and required task skills."""
     try:
@@ -322,6 +365,7 @@ workflow_routes = [
     Route("/api/workflow", get_workflow, methods=["GET"]),
     Route("/api/workflow/execute", execute_workflow, methods=["POST"]),
     Route("/api/workflow/execute/stream", execute_workflow_stream, methods=["POST"]),
+    Route("/api/a2a/execute", execute_a2a_direct, methods=["POST"]),
     Route("/api/skills", get_skills, methods=["GET"]),
     Route("/api/stream/d405/rgb", stream_d405_rgb, methods=["GET"]),
     Route("/api/stream/d405/depth", stream_d405_depth, methods=["GET"]),

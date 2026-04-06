@@ -421,7 +421,7 @@ class MedicationDeliveryAgent:
         self.app = create_medication_delivery_workflow()
 
     def _build_initial_state(
-        self, patient_name: str, medication_name: str, *, mode: str = "manual"
+        self, patient_name: str, medication_name: str, *, mode: str = "auto"
     ) -> AgentState:
         """Build the initial AgentState dict."""
         return {
@@ -462,7 +462,7 @@ class MedicationDeliveryAgent:
             + "\n".join(summary_lines)
         ))
 
-    def execute(self, patient_name: str, medication_name: str, *, mode: str = "manual") -> dict:
+    def execute(self, patient_name: str, medication_name: str, *, mode: str = "auto") -> dict:
         """Execute a medication delivery task (blocking)."""
         global _rr_initialized
         if not _rr_initialized:
@@ -495,7 +495,7 @@ class MedicationDeliveryAgent:
         return final_state
 
     def stream_execute(
-        self, patient_name: str, medication_name: str, *, mode: str = "manual"
+        self, patient_name: str, medication_name: str, *, mode: str = "auto"
     ) -> Generator[Tuple[str, str, dict], None, None]:
         """Execute workflow with per-node streaming.
 

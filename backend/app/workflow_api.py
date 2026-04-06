@@ -130,7 +130,7 @@ async def execute_workflow(request: Request) -> JSONResponse:
                 status_code=400,
             )
 
-        result = _agent.execute(parsed["patient_name"], parsed["medication_name"])
+        result = _agent.execute(parsed["patient_name"], parsed["medication_name"], mode="manual")
 
         return JSONResponse({
             "task_status": result.get("task_status"),
@@ -211,7 +211,7 @@ async def execute_workflow_stream(request: Request) -> StreamingResponse:
                 logging.getLogger("cure").addHandler(queue_handler)
 
                 try:
-                    for event_type, node_id, data in _agent.stream_execute(patient_name, medication_name):
+                    for event_type, node_id, data in _agent.stream_execute(patient_name, medication_name, mode="manual"):
                         try:
                             if not loop.is_closed():
                                 loop.call_soon_threadsafe(q.put_nowait, {

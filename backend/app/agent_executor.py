@@ -140,8 +140,10 @@ class MedicationAgentExecutor(AgentExecutor):
                 ),
             )
             
-            # Run medication delivery agent (synchronous)
-            result = self.medication_agent.execute(parsed["patient_name"], parsed["medication_name"])
+            # Run medication delivery agent (synchronous) — auto mode skips mock DB validation
+            result = self.medication_agent.execute(
+                parsed["patient_name"], parsed["medication_name"], mode="auto"
+            )
             
             # Determine final status based on result
             if result['task_status'] == 'delivered':

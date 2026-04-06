@@ -40,6 +40,7 @@ class AgentState(TypedDict):
     target_detected: bool
     identity_verified: bool
     identity_check_retries: int
+    mode: str  # "manual" (dashboard) or "auto" (A2A from external agent)
     errors: Annotated[List[str], operator.add]
     history: Annotated[List[str], operator.add]
     executed_nodes: Annotated[List[str], operator.add]
@@ -125,22 +126,42 @@ def _speak_and_wait(text: str, timeout_s: float = 30.0):
 # --- Node Functions ---
 
 def confirm_task_node(state: AgentState) -> dict:
-    """Pre-check validation: confirm patient and medication exist."""
+    """Pre-check validation: confirm patient and medication exist.
+
+    In auto mode (A2A), the upstream agent already validated the instruction,
+    so we skip the local mock DB check and trust the parsed input.
+    """
     _log_node_entry("confirm_task", state)
     patient_name = state['patient_name']
-    
-    _section("🔍", f"確認任務: 給予 {patient_name} 藥物")
-    
+    medication_name = state['medication_name']
+    mode = state.get('mode', 'manual')
+
+    _section("🔍", f"確認任務: 給予 {patient_name} {medication_name} (mode={mode})")
+
+    if mode == "auto":
+        # A2A path — external agent (e.g. Google ADK) already resolved patient/medication.
+        # Just validate that required fields are present.
+        if not patient_name or not medication_name:
+            return _fail("confirm_task", "missing_fields",
+                         "A2A 指令缺少病患名稱或藥物名稱")
+        _log("✓", f"A2A 任務確認成功: {patient_name} / {medication_name}")
+        return {
+            "task_status": "task_confirmed",
+            "history": [f"✓ A2A 確認給藥任務: {patient_name} — {medication_name}"],
+            "executed_nodes": ["confirm_task"],
+        }
+
+    # Manual path — validate against local mock database
     patient_info = MockDatabase.get_patient(patient_name)
     if not patient_info:
         _log("✗", f"病患資料庫中無此人: {patient_name}")
         return _fail("confirm_task", "patient_not_found", f"無效病患: {patient_name}")
-    
+
     _log("✓", "任務確認成功")
     return {
         "task_status": "task_confirmed",
         "history": [f"✓ 確認給藥任務: {patient_name}"],
-        "executed_nodes": ["confirm_task"]
+        "executed_nodes": ["confirm_task"],
     }
 
 
@@ -399,7 +420,9 @@ class MedicationDeliveryAgent:
     def __init__(self):
         self.app = create_medication_delivery_workflow()
 
-    def _build_initial_state(self, patient_name: str, medication_name: str) -> AgentState:
+    def _build_initial_state(
+        self, patient_name: str, medication_name: str, *, mode: str = "manual"
+    ) -> AgentState:
         """Build the initial AgentState dict."""
         return {
             "patient_name": patient_name,
@@ -409,6 +432,7 @@ class MedicationDeliveryAgent:
             "target_detected": False,
             "identity_verified": False,
             "identity_check_retries": 0,
+            "mode": mode,
             "errors": [],
             "history": [],
             "executed_nodes": [],
@@ -438,7 +462,7 @@ class MedicationDeliveryAgent:
             + "\n".join(summary_lines)
         ))
 
-    def execute(self, patient_name: str, medication_name: str) -> dict:
+    def execute(self, patient_name: str, medication_name: str, *, mode: str = "manual") -> dict:
         """Execute a medication delivery task (blocking)."""
         global _rr_initialized
         if not _rr_initialized:
@@ -448,11 +472,11 @@ class MedicationDeliveryAgent:
             rr.log("workflow/heartbeat", rr.TextLog("Execution started", level="DEBUG"))
 
         _setup_cure_loggers()
-        
-        start_time = time.time()
-        logger.info(f"\n{'#'*60}\n# 給藥任務開始\n{'#'*60}")
 
-        initial_state = self._build_initial_state(patient_name, medication_name)
+        start_time = time.time()
+        logger.info(f"\n{'#'*60}\n# 給藥任務開始 (mode={mode})\n{'#'*60}")
+
+        initial_state = self._build_initial_state(patient_name, medication_name, mode=mode)
         try:
             final_state = self.app.invoke(initial_state)
         except KeyboardInterrupt:
@@ -471,7 +495,7 @@ class MedicationDeliveryAgent:
         return final_state
 
     def stream_execute(
-        self, patient_name: str, medication_name: str
+        self, patient_name: str, medication_name: str, *, mode: str = "manual"
     ) -> Generator[Tuple[str, str, dict], None, None]:
         """Execute workflow with per-node streaming.
 
@@ -485,9 +509,9 @@ class MedicationDeliveryAgent:
         _setup_cure_loggers()
 
         start_time = time.time()
-        logger.info(f"\n{'#'*60}\n# 給藥任務開始 (streaming)\n{'#'*60}")
+        logger.info(f"\n{'#'*60}\n# 給藥任務開始 (streaming, mode={mode})\n{'#'*60}")
 
-        initial_state = self._build_initial_state(patient_name, medication_name)
+        initial_state = self._build_initial_state(patient_name, medication_name, mode=mode)
         executed_nodes: list[str] = []
         final_state = dict(initial_state)
 

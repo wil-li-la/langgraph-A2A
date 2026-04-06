@@ -98,14 +98,12 @@ class MedicationAgentExecutor(AgentExecutor):
         """Return a concise capability summary and usage examples."""
         return (
             "🤖 我是給藥服務代理（Medication Delivery Agent）。\n\n"
-            "我可以執行病房給藥流程：\n"
-            "1) 前往藥局拿藥\n"
-            "2) 導航到病患位置\n"
-            "3) 進行病患身分確認\n"
-            "4) 完成交付並回報結果\n\n"
-            "請用「病患 + 藥物」下指令，例如：\n"
-            "- 請將阿斯匹靈送給張小明\n"
-            "- Deliver Aspirin to John Smith"
+            "自主給藥流程：\n"
+            "1) 導航至藥局取藥\n"
+            "2) 導航至病患位置\n"
+            "3) 語音確認病患身份\n"
+            "4) 遞交藥物並回報結果\n\n"
+            '請使用 POST /api/a2a/execute {"patient": "王大同", "medicine": "維他命C"} 呼叫。'
         )
     
     async def execute(

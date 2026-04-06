@@ -87,8 +87,8 @@ def main(host: str, port: int):
             description=(
                 'Autonomous medication delivery workflow: navigate to pharmacy, '
                 'pick up medication, navigate to patient, verify identity via voice, '
-                'and hand over medication. Accepts natural language instructions or '
-                'structured JSON via POST /api/a2a/execute {"patient": str, "medicine": str}.'
+                'and hand over medication. '
+                'Call via POST /api/a2a/execute {"patient": str, "medicine": str}.'
             ),
             tags=['healthcare', 'robotics', 'medication', 'delivery', 'a2a'],
             examples=[
@@ -101,8 +101,7 @@ def main(host: str, port: int):
             name='Medication Delivery Robot',
             description=(
                 'HelloRobot Stretch autonomous medication delivery agent powered by LangGraph. '
-                'Supports A2A protocol (JSON-RPC message/send) and a direct REST endpoint '
-                '(POST /api/a2a/execute) for structured commands from external agents.'
+                'A2A callers use POST /api/a2a/execute with {"patient": str, "medicine": str}.'
             ),
             url=f'http://{host}:{port}/',
             version='1.1.0',

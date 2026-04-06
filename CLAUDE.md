@@ -50,7 +50,7 @@ docker-compose up -d
   - `GET /api/workflow` — graph structure (nodes + edges)
   - `POST /api/workflow/execute` — one-shot execution (manual mode, uses MockNLU)
   - `POST /api/workflow/execute/stream` — SSE streaming (node_start, node_end, log, done, error)
-  - `POST /api/a2a/execute` — structured A2A endpoint, body `{"patient": str, "medicine": str}`, skips NLU parsing, runs in auto mode
+  - `POST /api/a2a/execute` — the A2A endpoint, body `{"patient": str, "medicine": str}`, skips NLU parsing, runs in auto mode. This is the only endpoint A2A callers should use.
 - **`camera_api.py`** — Video streaming endpoints for robot cameras (D405, D435if).
 - **`healthcare/medication_delivery.py`** — The LangGraph `StateGraph`. 9 nodes (confirm_task → navigate_to_pharmacy → pickup_medication → navigate_to_patient → deliver → check_patient_identity → return_to_origin, with error_handler). Uses CURE robot skills (grasp, navigate, speak, listen, handover). Logs execution to Rerun.
 - **`healthcare/mock_data.py`** — Mock patient/medication database + MockNLU (bilingual Chinese/English pattern matching).

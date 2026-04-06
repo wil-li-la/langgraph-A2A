@@ -84,24 +84,29 @@ def main(host: str, port: int):
         medication_delivery_skill = AgentSkill(
             id='medication_delivery',
             name='Medication Delivery (給藥服務)',
-            description='Execute end-to-end medication delivery tasks using HelloRobot Stretch',
-            tags=['healthcare', 'robotics', 'medication', 'delivery'],
+            description=(
+                'Autonomous medication delivery workflow: navigate to pharmacy, '
+                'pick up medication, navigate to patient, verify identity via voice, '
+                'and hand over medication. Accepts natural language instructions or '
+                'structured JSON via POST /api/a2a/execute {"patient": str, "medicine": str}.'
+            ),
+            tags=['healthcare', 'robotics', 'medication', 'delivery', 'a2a'],
             examples=[
-                '請將阿斯匹靈送給張小明',
-                'Deliver Aspirin to John Smith',
-                '請將普拿疼送給李美華',
-                'Deliver Vitamin C to Mary Johnson',
-                '請將維他命C送給王大同',
+                '{"patient": "王大同", "medicine": "維他命C"}',
             ],
         )
-        
+
         # Create agent card
         agent_card = AgentCard(
             name='Medication Delivery Robot',
-            description='HelloRobot Stretch autonomous medication delivery system powered by LangGraph',
+            description=(
+                'HelloRobot Stretch autonomous medication delivery agent powered by LangGraph. '
+                'Supports A2A protocol (JSON-RPC message/send) and a direct REST endpoint '
+                '(POST /api/a2a/execute) for structured commands from external agents.'
+            ),
             url=f'http://{host}:{port}/',
-            version='1.0.0',
-            defaultInputModes=['text', 'text/plain'],
+            version='1.1.0',
+            defaultInputModes=['text', 'text/plain', 'application/json'],
             defaultOutputModes=['text', 'text/plain'],
             capabilities=capabilities,
             skills=[medication_delivery_skill],

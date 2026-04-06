@@ -191,7 +191,14 @@ def pickup_medication_node(state: AgentState) -> dict:
     _log_node_entry("pickup_med", state)
     _section("🤖", f"機械臂操作中: 抓取 {state['medication_name']}")
 
-    success = grasp_skill("medicine")
+    try:
+        success = grasp_skill("medicine")
+    except TypeError as e:
+        # IK solver returns None when it can't reach the target pose
+        _log("✗", "偵測到標記但 IK 無法到達目標位置")
+        return _fail("pickup_med", "pickup_failed",
+                      f"偵測到藥物標記但機械臂無法到達 (IK failed): {e}",
+                      f"✗ 偵測到標記但 IK 無法到達: {state['medication_name']}")
 
     if not success:
         _log("✗", "藥物抓取失敗")
@@ -555,15 +562,12 @@ class MedicationDeliveryAgent:
 if __name__ == "__main__":
     import sys
 
-    # Initialize Rerun here so the viewer can connect to this recording
+    dry_run = "--dry-run" in sys.argv
+    argv_args = [a for a in sys.argv[1:] if a != "--dry-run"]
+
+    # Initialize Rerun (skip spawn — hangs when viewer is not installed)
     rr.init("medication_delivery", spawn=False)
     _rr_initialized = True
-
-    # Spawn native viewer (better CJK font support than web viewer)
-    try:
-        rr.spawn()
-    except Exception as e:
-        logger.warning(f"Could not start Rerun viewer: {e}")
 
     examples = [
         ("張小明", "阿斯匹靈"),
@@ -571,11 +575,24 @@ if __name__ == "__main__":
         ("王大同", "維他命C"),
     ]
 
-    if len(sys.argv) >= 3:
-        p_name, m_name = sys.argv[1], sys.argv[2]
+    if len(argv_args) >= 2:
+        p_name, m_name = argv_args[0], argv_args[1]
     else:
-        logger.info("使用範例指令，您也可以用: python medication_delivery.py <病患> <藥物>")
+        logger.info("使用範例指令，您也可以用: python -m app.healthcare.medication_delivery <病患> <藥物>")
         p_name, m_name = examples[0]
+
+    if dry_run:
+        # Dry-run: patch module globals directly so node functions see the stubs.
+        # (import-as would create a second module copy when __name__ == "__main__")
+        _noop = lambda *a, **kw: True
+        navigate_skill = _noop          # noqa: F811
+        navigate_avoidance = _noop      # noqa: F811
+        grasp_skill = _noop             # noqa: F811
+        speak_skill = lambda *a, **kw: "stub"  # noqa: F811
+        wait_for_speech_completion = _noop      # noqa: F811
+        listen_skill = lambda *a, **kw: p_name  # noqa: F811  # echo patient name to pass identity check
+        handover_skill = _noop          # noqa: F811
+        logger.info("🧪 Dry-run mode: robot skills stubbed")
 
     agent = MedicationDeliveryAgent()
     result = agent.execute(p_name, m_name)

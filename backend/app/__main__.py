@@ -70,7 +70,15 @@ def main(host: str, port: int):
         # Use PORT env var if --port not specified (for Railway/Zeabur/Cloud Run)
         if port is None:
             port = int(os.getenv('PORT', '9999'))
-        
+
+        # Public URL advertised in the AgentCard. PUBLIC_URL wins (for cloud
+        # deployments behind a proxy); otherwise build it from host/port,
+        # rewriting wildcard binds to localhost so the card stays callable.
+        public_url = os.getenv('PUBLIC_URL', '').rstrip('/')
+        if not public_url:
+            advertised_host = 'localhost' if host in ('0.0.0.0', '::', '') else host
+            public_url = f'http://{advertised_host}:{port}'
+
         # Validate environment and log configuration
         validate_environment()
         
@@ -85,14 +93,21 @@ def main(host: str, port: int):
             id='medication_delivery',
             name='Medication Delivery (給藥服務)',
             description=(
-                'Autonomous medication delivery workflow: navigate to pharmacy, '
-                'pick up medication, navigate to patient, verify identity via voice, '
-                'and hand over medication. '
-                'Call via POST /api/a2a/execute {"patient": str, "medicine": str}.'
+                'Autonomous medication delivery workflow on a HelloRobot Stretch: '
+                'confirm task → navigate to pharmacy → pick up medication → '
+                'navigate to patient → voice-verify identity → hand over medication '
+                '→ return to origin. '
+                'Send an A2A message containing a DataPart with '
+                '{"patient": str, "medicine": str}; the agent replies with a text '
+                'summary plus a structured DataPart artifact carrying task_status, '
+                'history, executed_nodes and errors.'
             ),
-            tags=['healthcare', 'robotics', 'medication', 'delivery', 'a2a'],
+            tags=['healthcare', 'robotics', 'medication', 'delivery'],
+            inputModes=['application/json'],
+            outputModes=['application/json', 'text/plain'],
             examples=[
                 '{"patient": "王大同", "medicine": "維他命C"}',
+                '{"patient": "張小明", "medicine": "阿斯匹靈"}',
             ],
         )
 
@@ -100,13 +115,16 @@ def main(host: str, port: int):
         agent_card = AgentCard(
             name='Medication Delivery Robot',
             description=(
-                'HelloRobot Stretch autonomous medication delivery agent powered by LangGraph. '
-                'A2A callers use POST /api/a2a/execute with {"patient": str, "medicine": str}.'
+                'HelloRobot Stretch autonomous medication delivery agent, '
+                'orchestrated as a LangGraph StateGraph and exposed over the '
+                'Google A2A protocol. Accepts structured DataPart input '
+                '{"patient": str, "medicine": str} via the standard '
+                'message/send JSON-RPC method.'
             ),
-            url=f'http://{host}:{port}/',
-            version='1.1.0',
-            defaultInputModes=['text', 'text/plain', 'application/json'],
-            defaultOutputModes=['text', 'text/plain'],
+            url=f'{public_url}/',
+            version='2.0.0',
+            defaultInputModes=['application/json'],
+            defaultOutputModes=['application/json', 'text/plain'],
             capabilities=capabilities,
             skills=[medication_delivery_skill],
         )
@@ -154,9 +172,9 @@ def main(host: str, port: int):
         )
         
         logger.info(f'Starting Medication Delivery A2A agent server on {host}:{port}')
-        logger.info(f'Agent card available at: http://{host}:{port}/agent-card')
-        logger.info(f'Workflow API available at: http://{host}:{port}/api/workflow')
-        logger.info(f'A2A direct endpoint: POST http://{host}:{port}/api/a2a/execute')
+        logger.info(f'Agent card: {public_url}/.well-known/agent-card.json')
+        logger.info(f'A2A JSON-RPC endpoint: POST {public_url}/')
+        logger.info(f'Dashboard workflow API: {public_url}/api/workflow')
         
         # Run the server
         uvicorn.run(starlette_app, host=host, port=port)

@@ -36,7 +36,8 @@ class MedicationAgentExecutor(AgentExecutor):
 
     @staticmethod
     def _extract_payload(context: RequestContext) -> dict[str, Any] | None:
-        """Pull the first DataPart payload out of the inbound A2A message."""
+        """Pull the first DataPart or JSON TextPart payload out of the inbound A2A message."""
+        import json
         message = context.message
         if message is None or not message.parts:
             return None
@@ -44,6 +45,25 @@ class MedicationAgentExecutor(AgentExecutor):
             root = part.root
             if isinstance(root, DataPart) and isinstance(root.data, dict):
                 return root.data
+            elif isinstance(root, TextPart) and root.text:
+                try:
+                    text = root.text.strip()
+                    # Strip markdown blocks just in case
+                    if text.startswith("```json"):
+                        text = text[7:]
+                    elif text.startswith("```"):
+                        text = text[3:]
+                    if text.endswith("```"):
+                        text = text[:-3]
+                    text = text.strip()
+                    logger.info(f"Attempting to parse JSON: {text}")
+                    data = json.loads(text)
+                    logger.info(f"Parsed JSON: {data}")
+                    if isinstance(data, dict):
+                        return data
+                except Exception as e:
+                    logger.error(f"Failed to parse text as JSON: {e}")
+                    pass
         return None
 
     async def execute(

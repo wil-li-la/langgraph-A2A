@@ -5,6 +5,7 @@ import json
 import logging
 import pkgutil
 import threading
+import uuid
 from typing import AsyncGenerator
 
 from starlette.requests import Request
@@ -23,6 +24,7 @@ from app.camera_api import (
 from app.healthcare.medication_delivery import (
     MedicationDeliveryAgent,
     create_medication_delivery_workflow,
+    _paused_sessions,
 )
 from app.healthcare.mock_data import MockNLU
 import cure.skills
@@ -180,6 +182,7 @@ async def execute_workflow_stream(request: Request) -> StreamingResponse:
 
         patient_name = parsed["patient_name"]
         medication_name = parsed["medication_name"]
+        session_id = str(uuid.uuid4())
 
         async def event_generator() -> AsyncGenerator[str, None]:
             """Run stream_execute in a background thread, intercept stdout, and yield SSE lines."""
@@ -210,7 +213,7 @@ async def execute_workflow_stream(request: Request) -> StreamingResponse:
                 logging.getLogger("cure").addHandler(queue_handler)
 
                 try:
-                    for event_type, node_id, data in _agent.stream_execute(patient_name, medication_name, mode="manual"):
+                    for event_type, node_id, data in _agent.stream_execute(patient_name, medication_name, mode="manual", session_id=session_id):
                         try:
                             if not loop.is_closed():
                                 loop.call_soon_threadsafe(q.put_nowait, {
@@ -267,12 +270,23 @@ async def execute_workflow_stream(request: Request) -> StreamingResponse:
                             "history": data.get("history", []),
                             "executed_nodes": data.get("executed_nodes", []),
                         }
-                        payload = json.dumps({"event": "done", "result": result}, ensure_ascii=False)
+                        payload = json.dumps({"event": "done", "result": result, "session_id": session_id}, ensure_ascii=False)
+                    elif event_type == "paused":
+                        payload = json.dumps({
+                            "event": "paused",
+                            "node_id": node_id,
+                            "session_id": session_id,
+                            "reason": data.get("reason", ""),
+                            "task_status": data.get("task_status", ""),
+                            "executed_nodes": data.get("executed_nodes", []),
+                        }, ensure_ascii=False)
                     else:
+                        filtered_data = {k: v for k, v in data.items() if k != "session_id"}
                         payload = json.dumps({
                             "event": event_type,
                             "node_id": node_id,
-                            **data,
+                            "session_id": session_id,
+                            **filtered_data,
                         }, ensure_ascii=False)
                     yield f"data: {payload}\n\n"
                     
@@ -292,6 +306,166 @@ async def execute_workflow_stream(request: Request) -> StreamingResponse:
 
     except Exception as e:
         logger.error(f"Stream execution failed: {e}")
+        return JSONResponse(
+            {"error": str(e)},
+            status_code=500,
+        )
+
+
+async def resume_workflow_stream(request: Request) -> StreamingResponse:
+    """POST /api/workflow/resume — Resume a paused workflow via SSE.
+
+    Body: { "session_id": "...", "node_id": "..." }
+    """
+    try:
+        body = await request.json()
+        session_id = body.get("session_id", "")
+        node_id = body.get("node_id", "")
+
+        if not session_id or not node_id:
+            return JSONResponse(
+                {"error": "Missing 'session_id' or 'node_id' field"},
+                status_code=400,
+            )
+
+        if session_id not in _paused_sessions:
+            return JSONResponse(
+                {"error": f"No paused session found for session_id={session_id}"},
+                status_code=404,
+            )
+
+        saved_state = _paused_sessions[session_id]
+        resume_state = dict(saved_state)
+        resume_state["task_status"] = "resuming"
+        resume_state["errors"] = []
+        resume_state["resume_from"] = node_id
+
+        async def event_generator() -> AsyncGenerator[str, None]:
+            """Run stream_execute with resume_state in a background thread and yield SSE lines."""
+            loop = asyncio.get_event_loop()
+            q = asyncio.Queue()
+
+            def _run_stream():
+                thread_id = threading.get_ident()
+
+                class QueueLogHandler(logging.Handler):
+                    def emit(self, record):
+                        if threading.get_ident() == thread_id:
+                            text = f"{record.getMessage()}"
+                            if text.strip():
+                                try:
+                                    if not loop.is_closed():
+                                        loop.call_soon_threadsafe(q.put_nowait, {"type": "stdout", "text": text.rstrip("\n")})
+                                except RuntimeError:
+                                    pass
+
+                queue_handler = QueueLogHandler()
+                queue_handler.setLevel(logging.INFO)
+
+                logging.getLogger().addHandler(queue_handler)
+                logging.getLogger("app.healthcare.medication_delivery").addHandler(queue_handler)
+                logging.getLogger("cure").addHandler(queue_handler)
+
+                try:
+                    for event_type, ev_node_id, data in _agent.stream_execute(
+                        resume_state["patient_name"],
+                        resume_state["medication_name"],
+                        mode="manual",
+                        resume_state=resume_state,
+                        session_id=session_id,
+                    ):
+                        try:
+                            if not loop.is_closed():
+                                loop.call_soon_threadsafe(q.put_nowait, {
+                                    "type": "langgraph",
+                                    "event_type": event_type,
+                                    "node_id": ev_node_id,
+                                    "data": data,
+                                })
+                        except RuntimeError:
+                            break
+                except Exception as e:
+                    logger.error(f"Error in resume stream thread: {e}", exc_info=True)
+                    try:
+                        if not loop.is_closed():
+                            loop.call_soon_threadsafe(q.put_nowait, {"type": "error", "error": str(e)})
+                    except RuntimeError:
+                        pass
+                finally:
+                    logging.getLogger().removeHandler(queue_handler)
+                    logging.getLogger("app.healthcare.medication_delivery").removeHandler(queue_handler)
+                    logging.getLogger("cure").removeHandler(queue_handler)
+                    try:
+                        if not loop.is_closed():
+                            loop.call_soon_threadsafe(q.put_nowait, None)
+                    except RuntimeError:
+                        pass
+
+            thread = threading.Thread(target=_run_stream)
+            thread.start()
+
+            while True:
+                item = await q.get()
+                if item is None:
+                    break
+
+                if item["type"] == "stdout":
+                    payload = json.dumps({"event": "log", "text": item["text"]}, ensure_ascii=False)
+                    yield f"data: {payload}\n\n"
+
+                elif item["type"] == "langgraph":
+                    event_type = item["event_type"]
+                    ev_node_id = item["node_id"]
+                    data = item["data"]
+
+                    if event_type == "done":
+                        result = {
+                            "task_status": data.get("task_status"),
+                            "patient_name": data.get("patient_name"),
+                            "medication_name": data.get("medication_name"),
+                            "current_location": data.get("current_location"),
+                            "target_detected": data.get("target_detected"),
+                            "identity_verified": data.get("identity_verified"),
+                            "errors": data.get("errors", []),
+                            "history": data.get("history", []),
+                            "executed_nodes": data.get("executed_nodes", []),
+                        }
+                        payload = json.dumps({"event": "done", "result": result, "session_id": session_id}, ensure_ascii=False)
+                    elif event_type == "paused":
+                        payload = json.dumps({
+                            "event": "paused",
+                            "node_id": ev_node_id,
+                            "session_id": session_id,
+                            "reason": data.get("reason", ""),
+                            "task_status": data.get("task_status", ""),
+                            "executed_nodes": data.get("executed_nodes", []),
+                        }, ensure_ascii=False)
+                    else:
+                        filtered_data = {k: v for k, v in data.items() if k != "session_id"}
+                        payload = json.dumps({
+                            "event": event_type,
+                            "node_id": ev_node_id,
+                            "session_id": session_id,
+                            **filtered_data,
+                        }, ensure_ascii=False)
+                    yield f"data: {payload}\n\n"
+
+                elif item["type"] == "error":
+                    payload = json.dumps({"event": "error", "error": item["error"]}, ensure_ascii=False)
+                    yield f"data: {payload}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    except Exception as e:
+        logger.error(f"Resume stream execution failed: {e}")
         return JSONResponse(
             {"error": str(e)},
             status_code=500,
@@ -321,6 +495,7 @@ workflow_routes = [
     Route("/api/workflow", get_workflow, methods=["GET"]),
     Route("/api/workflow/execute", execute_workflow, methods=["POST"]),
     Route("/api/workflow/execute/stream", execute_workflow_stream, methods=["POST"]),
+    Route("/api/workflow/resume", resume_workflow_stream, methods=["POST"]),
     Route("/api/skills", get_skills, methods=["GET"]),
     Route("/api/stream/d405/rgb", stream_d405_rgb, methods=["GET"]),
     Route("/api/stream/d405/depth", stream_d405_depth, methods=["GET"]),

@@ -8,6 +8,7 @@ import { WorkflowGraph } from "@/components/workflow-graph"
 import { VideoPanel } from "@/components/video-panel"
 import { ModeToggle } from "@/components/mode-toggle"
 import { useWorkflow } from "@/hooks/use-workflow"
+import { NavBar } from "@/components/nav-bar"
 
 export function RobotDashboard() {
   const [selectedRobot, setSelectedRobot] = useState<RobotId>("stretch3")
@@ -36,17 +37,10 @@ export function RobotDashboard() {
   }, [executionLog])
 
   return (
-    <div className="flex min-h-screen flex-col bg-background p-4 lg:p-6">
-      {/* Title */}
-      <header className="mb-6">
-        <h1 className="font-mono text-lg font-medium tracking-tight text-foreground">
-          Robot Task Dashboard
-        </h1>
-        <div className="mt-1 h-px bg-border" />
-      </header>
-
-      {/* Main grid matching wireframe layout */}
-      <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-4">
+    <div className="flex min-h-screen flex-col bg-background">
+      <NavBar />
+      <div className="flex flex-1 flex-col p-4 lg:p-6">
+        <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-4">
         {/* Top row: Connect Robot | Task LangGraph | Required Skills */}
         <div className="grid gap-4 lg:grid-cols-[1fr_1.2fr_0.6fr]">
           {/* Connect Robot panel */}
@@ -174,6 +168,7 @@ export function RobotDashboard() {
             <VideoPanel data={data} />
           </div>
         </div>
+      </div>
       </div>
     </div>
   )

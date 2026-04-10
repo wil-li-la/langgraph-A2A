@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
+import { RobotConnectionProvider } from '@/contexts/robot-connection'
 
 import './globals.css'
 
@@ -19,7 +20,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <body className="font-sans antialiased">{children}</body>
+      <body className="font-sans antialiased">
+        <RobotConnectionProvider>
+          {children}
+        </RobotConnectionProvider>
+      </body>
     </html>
   )
 }

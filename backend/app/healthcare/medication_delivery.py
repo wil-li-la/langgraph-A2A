@@ -30,6 +30,9 @@ RERUN_LOG_DIR.mkdir(parents=True, exist_ok=True)
 # Set to True when rr.init() has already been called
 _rr_initialized = False
 
+# In-memory store for paused workflow sessions.
+_paused_sessions: dict[str, dict] = {}
+
 
 class AgentState(TypedDict):
     """State definition for medication delivery workflow."""
@@ -403,6 +406,24 @@ def route_from_resume_router(state: AgentState) -> str:
     return "confirm_task"
 
 
+# Map each node to the router function that decides its next step.
+_NODE_ROUTERS = {
+    "confirm_task": should_continue_after_confirm,
+    "pickup_med": should_continue_after_pickup,
+    "nav_to_patient": should_continue_after_nav_to_patient,
+    "delivery": should_continue_after_delivery,
+    "check_patient_identity": should_continue_after_identity,
+}
+
+
+def _should_pause(node_id: str, state: dict) -> bool:
+    """Check if a node's output would route to handle_error."""
+    router = _NODE_ROUTERS.get(node_id)
+    if router is None:
+        return False
+    return router(state) == "handle_error"
+
+
 # --- Workflow Construction ---
 
 def create_medication_delivery_workflow() -> StateGraph:
@@ -534,13 +555,15 @@ class MedicationDeliveryAgent:
         return final_state
 
     def stream_execute(
-        self, patient_name: str, medication_name: str, *, mode: str = "auto"
+        self, patient_name: str, medication_name: str, *, mode: str = "auto",
+        session_id: str = "", resume_state: dict | None = None,
     ) -> Generator[Tuple[str, str, dict], None, None]:
         """Execute workflow with per-node streaming.
 
-        Yields (event_type, node_id, state_snapshot) tuples:
+        Yields (event_type, node_id, data) tuples:
           - ("node_start", node_id, {executed_nodes so far})
-          - ("node_end",   node_id, {executed_nodes so far, history, ...})
+          - ("node_end",   node_id, {executed_nodes, history, task_status})
+          - ("paused",     node_id, {session_id, reason, task_status, executed_nodes})
           - ("done",        "",      {full final state})
         """
         if not _rr_initialized:
@@ -550,43 +573,71 @@ class MedicationDeliveryAgent:
         start_time = time.time()
         logger.info(f"\n{'#'*60}\n# 給藥任務開始 (streaming, mode={mode})\n{'#'*60}")
 
-        initial_state = self._build_initial_state(patient_name, medication_name, mode=mode)
-        executed_nodes: list[str] = []
+        if resume_state is not None:
+            initial_state = resume_state
+        else:
+            initial_state = self._build_initial_state(patient_name, medication_name, mode=mode)
+
+        executed_nodes: list[str] = list(initial_state.get("executed_nodes", []))
         final_state = dict(initial_state)
 
+        paused = False
         try:
             for chunk in self.app.stream(initial_state):
-                # chunk is {node_name: state_update_dict}
                 for node_id, state_update in chunk.items():
-                    # Emit node_start
+                    # Skip the resume_router node in events
+                    if node_id == "resume_router":
+                        final_state.update(state_update)
+                        new_nodes = state_update.get("executed_nodes", [])
+                        executed_nodes.extend(new_nodes)
+                        final_state["executed_nodes"] = list(executed_nodes)
+                        continue
+
                     yield ("node_start", node_id, {
                         "executed_nodes": list(executed_nodes),
+                        "session_id": session_id,
                     })
 
-                    # Merge state update
                     final_state.update(state_update)
-                    # Track executed nodes from the update
                     new_nodes = state_update.get("executed_nodes", [])
                     executed_nodes.extend(new_nodes)
                     final_state["executed_nodes"] = list(executed_nodes)
 
-                    # Emit node_end
                     yield ("node_end", node_id, {
                         "executed_nodes": list(executed_nodes),
                         "history": state_update.get("history", []),
                         "task_status": state_update.get("task_status", ""),
+                        "session_id": session_id,
                     })
+
+                    # In manual mode, check if this node failed
+                    if mode == "manual" and _should_pause(node_id, final_state):
+                        errors = final_state.get("errors", [])
+                        reason = errors[-1] if errors else final_state.get("task_status", "unknown error")
+                        _paused_sessions[session_id] = dict(final_state)
+                        yield ("paused", node_id, {
+                            "session_id": session_id,
+                            "reason": reason,
+                            "task_status": final_state.get("task_status", ""),
+                            "executed_nodes": list(executed_nodes),
+                        })
+                        paused = True
+                        break
+                if paused:
+                    break
+
         except KeyboardInterrupt:
             logger.warning("任務被使用者手動中斷 (KeyboardInterrupt)")
             final_state["task_status"] = "interrupted"
             final_state["history"].append("⚠️ 任務被手動中斷")
 
-        self._print_summary(final_state, time.time() - start_time)
-
-        rrd_path = RERUN_LOG_DIR / f"medication_delivery_{patient_name}_{int(time.time())}.rrd"
-        rr.save(str(rrd_path))
-        logger.info(f"Rerun log saved to {rrd_path}")
-        yield ("done", "", final_state)
+        if not paused:
+            self._print_summary(final_state, time.time() - start_time)
+            rrd_path = RERUN_LOG_DIR / f"medication_delivery_{patient_name}_{int(time.time())}.rrd"
+            rr.save(str(rrd_path))
+            logger.info(f"Rerun log saved to {rrd_path}")
+            _paused_sessions.pop(session_id, None)
+            yield ("done", "", final_state)
 
 
 # --- CLI for Testing ---

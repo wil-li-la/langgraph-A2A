@@ -16,14 +16,14 @@ interface SpeedScaleProps {
 export function SpeedScale({ scale, onChange }: SpeedScaleProps) {
   return (
     <div className="rounded-md border border-border p-2">
-      <div className="mb-1.5 font-mono text-[10px] text-muted-foreground tracking-wide">
+      <div className="mb-2 font-mono text-xs font-medium text-muted-foreground tracking-wide">
         SPEED
       </div>
       <div className="flex gap-1">
         {LEVELS.map((lvl) => (
           <button
             key={lvl.value}
-            className={`flex-1 rounded-md border py-1.5 font-mono text-xs transition-colors ${
+            className={`flex-1 rounded-md border py-2.5 font-mono text-xs font-medium transition-colors ${
               scale === lvl.value
                 ? "border-foreground/30 bg-foreground/10 text-foreground"
                 : "border-border text-muted-foreground hover:bg-foreground/5 hover:text-foreground"

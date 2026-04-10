@@ -30,12 +30,12 @@ export function SkillsPanel({ skillsData }: SkillsPanelProps) {
                   {skillId}
                 </span>
               </div>
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 {isLoaded ? "loaded" : "pending"}
               </span>
             </div>
           )
-        }) : <span className="font-mono text-[10px] text-muted-foreground/50">loading...</span>}
+        }) : <span className="font-mono text-xs text-muted-foreground/50">loading...</span>}
       </div>
     </div>
   )

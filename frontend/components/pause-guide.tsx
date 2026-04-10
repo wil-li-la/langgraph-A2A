@@ -25,7 +25,7 @@ export function PauseGuide({ nodeId, reason }: PauseGuideProps) {
             Switch to Teleop to adjust the robot{" "}
             <Link
               href="/teleop"
-              className="rounded border border-border px-2 py-0.5 text-[10px] text-foreground transition-colors hover:bg-foreground/5"
+              className="rounded border border-border px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-foreground/10"
             >
               Open Teleop
             </Link>

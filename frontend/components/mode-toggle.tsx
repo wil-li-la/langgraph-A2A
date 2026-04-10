@@ -47,7 +47,7 @@ export function ModeToggle({ isExecuting = false, onStreamRun, onStreamStop, onE
         <div className="flex rounded-full border border-border bg-background/50 p-0.5">
           <button
             onClick={() => setMode("manual")}
-            className={`rounded-full px-3 py-1 font-mono text-[10px] font-medium transition-colors ${
+            className={`rounded-full px-3 py-1 font-mono text-xs font-medium transition-colors ${
               mode === "manual"
                 ? "bg-foreground text-background"
                 : "text-muted-foreground hover:text-foreground"
@@ -57,7 +57,7 @@ export function ModeToggle({ isExecuting = false, onStreamRun, onStreamStop, onE
           </button>
           <button
             onClick={() => setMode("auto")}
-            className={`rounded-full px-3 py-1 font-mono text-[10px] font-medium transition-colors ${
+            className={`rounded-full px-3 py-1 font-mono text-xs font-medium transition-colors ${
               mode === "auto"
                 ? "bg-foreground text-background"
                 : "text-muted-foreground hover:text-foreground"
@@ -108,8 +108,8 @@ export function ModeToggle({ isExecuting = false, onStreamRun, onStreamStop, onE
           {/* Last result feedback */}
           {lastResult && (
             <div className="rounded-md border border-border bg-background/50 px-3 py-2">
-              <span className="font-mono text-[10px] text-muted-foreground">RESULT: </span>
-              <span className="font-mono text-[10px] text-foreground">{lastResult}</span>
+              <span className="font-mono text-xs text-muted-foreground">RESULT: </span>
+              <span className="font-mono text-xs text-foreground">{lastResult}</span>
             </div>
           )}
         </div>

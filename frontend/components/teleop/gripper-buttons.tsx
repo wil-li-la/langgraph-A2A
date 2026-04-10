@@ -38,7 +38,7 @@ export function GripperButtons({ sendCommand, speedScale }: GripperButtonsProps)
     }
   }, []);
 
-  const btn = "flex-1 rounded-md border border-border py-2 font-mono text-xs transition-colors hover:bg-foreground/5 active:bg-foreground/10";
+  const btn = "flex-1 rounded-md border border-border py-3 font-mono text-sm font-medium transition-colors hover:bg-foreground/5 active:bg-foreground/10";
 
   return (
     <div className="flex gap-1">

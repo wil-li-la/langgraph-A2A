@@ -165,11 +165,7 @@ def main(host: str, port: int):
         # Add CORS middleware for frontend dev server
         starlette_app.add_middleware(
             CORSMiddleware,
-            allow_origins=[
-                "http://localhost:3000",
-                "http://127.0.0.1:3000",
-                os.getenv("FRONTEND_URL", ""),
-            ],
+            allow_origins=["*"],
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],

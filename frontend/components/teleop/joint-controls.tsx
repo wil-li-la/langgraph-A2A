@@ -47,11 +47,11 @@ export function JointControls({ joints, sendCommand, speedScale }: JointControls
     }
   }, []);
 
-  const btn = "h-11 w-11 shrink-0 rounded-md border border-border font-mono text-base transition-colors hover:bg-foreground/5 active:bg-foreground/10";
+  const btn = "h-10 w-12 shrink-0 rounded-md border border-border font-mono text-lg font-medium transition-colors hover:bg-foreground/5 active:bg-foreground/10";
 
   return (
     <div className="rounded-md border border-border p-2">
-      <div className="mb-1.5 font-mono text-[10px] text-muted-foreground tracking-wide">
+      <div className="mb-2 font-mono text-xs font-medium text-muted-foreground tracking-wide">
         JOINTS
       </div>
       <div className="space-y-1">
@@ -62,10 +62,10 @@ export function JointControls({ joints, sendCommand, speedScale }: JointControls
               -
             </button>
             <div className="flex-1 min-w-0">
-              <div className="font-mono text-[10px] text-muted-foreground truncate">
+              <div className="font-mono text-xs text-muted-foreground truncate">
                 {JOINT_LABELS[name] ?? name}
               </div>
-              <div className="font-mono text-xs text-foreground">
+              <div className="font-mono text-sm font-medium text-foreground">
                 {joints[name]?.toFixed(3) ?? "0.000"}
               </div>
             </div>

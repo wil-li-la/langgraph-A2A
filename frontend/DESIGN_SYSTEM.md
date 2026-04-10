@@ -1,224 +1,127 @@
 # Frontend Design System
 
-> Robot Task Dashboard 的視覺設計規範，確保所有元件遵循一致的風格語言。
+> Robot Task Dashboard + Teleop 的視覺設計規範。
 
 ---
 
 ## 設計哲學
 
-**終端機風格、資訊密集、單色系**。Dashboard 的核心是「一眼掌握」—— 用最少的裝飾傳達最多的狀態資訊。
+**終端機風格、觸控優先、高對比**。為 11" iPad 及桌面瀏覽器設計。
 
-- 全介面使用 **dark mode** (`<html className="dark">`)，無淺色主題
-- 以 **opacity 層級** 表達資訊階層，而非色彩
-- 全數據文字使用 **monospace**，僅頁面標題可用 sans-serif
+- 全介面使用 **dark mode** (`<html className="dark">`)
+- **高對比度**：文字至少 70% 亮度，邊框至少 22%，確保 iPad 可讀性
+- **觸控友善**：所有可互動元素最小 44px 高度，推薦 48-56px
+- 全數據文字使用 **monospace**
 
 ---
 
 ## 色彩系統
 
-所有顏色透過 CSS custom properties 定義在 `styles/globals.css`，由 Tailwind 的 `hsl(var(--xxx))` 語法引用。
-
 ### 核心色票
 
 | Token | HSL (Dark Mode) | 用途 |
 |---|---|---|
-| `--background` | `0 0% 3.9%` | 頁面底色 |
-| `--foreground` | `0 0% 98%` | 主要文字 |
-| `--card` | `0 0% 3.9%` | 面板背景 |
-| `--card-foreground` | `0 0% 98%` | 面板內文字 |
-| `--border` | `0 0% 14.9%` | 邊框、分隔線 |
-| `--muted` | `0 0% 14.9%` | 次要背景 |
-| `--muted-foreground` | `0 0% 63.9%` | 次要文字、標籤 |
-| `--primary` | `0 0% 98%` | 主要互動元素 |
-| `--secondary` | `0 0% 14.9%` | 次要按鈕背景 |
-| `--destructive` | `0 62.8% 30.6%` | 錯誤狀態（唯一允許的色彩） |
+| `--background` | `0 0% 6%` | 頁面底色 |
+| `--foreground` | `0 0% 95%` | 主要文字 |
+| `--card` | `0 0% 9%` | 面板背景 |
+| `--border` | `0 0% 22%` | 邊框（高可見度） |
+| `--muted-foreground` | `0 0% 70%` | 次要文字、標籤（高對比） |
+| `--secondary` | `0 0% 16%` | 次要按鈕背景 |
+| `--destructive` | `0 63% 31%` | 錯誤/RUNSTOP（唯一允許色彩） |
 
-### 設計規則
+### WorkflowGraph 節點狀態（SVG）
 
-```
-✅ 用 opacity 區分層級（foreground/90, /40, /10）
-✅ 用 border 分隔區塊
-❌ 不使用彩色（綠/藍/黃）表示狀態
-❌ 不使用 shadow
-❌ 不使用漸層
-```
-
-### WorkflowGraph 節點狀態
-
-在 SVG 繪製的 Workflow 圖中，用 opacity 表達狀態：
-
-| 狀態 | Fill Alpha | Border Alpha | Text Alpha | 附加效果 |
-|---|---|---|---|---|
-| `completed` | `0.08` | `0.30` | `0.9` | — |
-| `active` | `0.12` | `0.60` | `1.0` | pulse 動畫 |
-| `pending` | `0.02` | `0.10` | `0.4` | — |
-| `error` | `0.03` | `0.15` | `0.7` | — |
+| 狀態 | Fill | Border | Text |
+|---|---|---|---|
+| `completed` | green 8% | green 40% | white 90% |
+| `active` | blue 12% | blue 70% | white 100% |
+| `pending` | white 2% | white 10% | white 40% |
+| `error` | red 15% | red 60% | red 90% |
 
 ---
 
 ## 字型
 
-定義在 `app/layout.tsx`，使用 Google Fonts 的 **Geist** 家族。
+| 元素 | 字型 | 大小 | 備註 |
+|---|---|---|---|
+| 區塊標題 | `font-mono` | `text-sm` (14px) | `font-medium tracking-wide` UPPERCASE |
+| 按鈕文字 | `font-mono` | `text-sm` (14px) | `font-medium` |
+| 內容文字 | `font-mono` | `text-xs` (12px) | 最小可讀大小 |
+| 小標籤 | `font-mono` | `text-[11px]` | 僅用於非互動標籤 |
 
-| 元素 | 字型 | Tailwind Class | 大小 | 字重 |
-|---|---|---|---|---|
-| 頁面標題 | Geist (sans) | `font-sans` | `text-lg` | `font-medium` |
-| 區塊標題 | System Mono | `font-mono` | `text-sm` | `font-medium tracking-wide` |
-| 內容文字 | System Mono | `font-mono` | `text-xs` | `font-normal` |
-| 極小標籤 | System Mono | `font-mono` | `text-[10px]` | `font-normal` |
-
-### UPPERCASE 標題格式
-
-所有區塊標題（如 `CONNECT ROBOT`、`TASK — LANGGRAPH`）使用全大寫：
-
-```tsx
-<h2 className="font-mono text-sm font-medium tracking-wide text-foreground">
-  TASK &mdash; LANGGRAPH
-</h2>
-```
+**規則：不使用 `text-[10px]` 或更小。最小字體 11px。**
 
 ---
 
-## 排版 Grid
+## 觸控目標規範
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  Robot Task Dashboard                     [font-sans]   │
-├──────────────┬───────────────────┬───────────────────────┤
-│  CONNECT     │  TASK —           │  REQUIRED             │
-│  ROBOT       │  LANGGRAPH        │  SKILLS               │
-│  [1fr]       │  [1.2fr]          │  [0.6fr]              │
-├──────────────┴─────────┬─────────┴───────────────────────┤
-│  MAIN VIEW             │  VIDEO STREAMING                │
-│  [1fr]                 │  [1fr]                          │
-└────────────────────────┴─────────────────────────────────┘
-```
+| 元素 | 最小高度 | 推薦高度 |
+|---|---|---|
+| 主要按鈕 (RUNSTOP, Drive) | `h-14` (56px) | `h-16` (64px) |
+| 一般按鈕 (Gripper, Home, Speed) | `h-12` (48px) | `h-14` (56px) |
+| 輸入框 | `h-10` (40px) | `h-12` (48px) |
+| 小型按鈕 (nav links) | `h-8` (32px) | — |
 
-| 屬性 | 值 |
+**規則：所有可互動元素最小 44px 高度。**
+
+---
+
+## 間距
+
+| 場景 | Class |
 |---|---|
-| 最大寬度 | `max-w-[1400px]`，置中 |
-| 間距 | `gap-4` (16px) |
-| 面板 padding | `p-4` (16px) |
-| 面板圓角 | `rounded-md` |
-| 面板邊框 | `border border-border` |
-| 面板背景 | `bg-card` |
+| 面板之間 | `gap-3` |
+| 面板內 padding | `p-3` |
+| 標題到內容 | `mb-2` |
+| 小元素之間 | `gap-2` |
+
+---
+
+## 頁面佈局
+
+### Dashboard（兩欄式）
+
+```
+┌─ Nav Bar [Robot IP] [Connect] ● Stretch 3 [Dashboard] [Teleop] ┐
+├───────────────────────────────┬──────────────────────────────────┤
+│  TASK — LANGGRAPH             │  Skills / Mode / Log             │
+│  (Phase Groups 水平佈局)       │  (堆疊，Log 填滿剩餘空間)         │
+├───────────────────────────────┤                                  │
+│  VIDEO & MAP                  │                                  │
+│  [Head] [Gripper] [Map]       │                                  │
+└───────────────────────────────┴──────────────────────────────────┘
+```
+
+### Teleop（三欄式）
+
+```
+┌─ Nav Bar ────────────────────────────────────────────────────────┐
+├────────────┬──────────────────────────────────┬──────────────────┤
+│ MOBILITY   │  2×2 Camera Grid                 │  MANIPULATION    │
+│ Runstop    │  [Overhead] [Realsense]          │  Joints          │
+│ Drive WASD │  [Gripper]  [Nav Map]            │  Gripper         │
+│ Head       │                                  │  Home            │
+│ Speed      │  TTS / Chat                      │                  │
+└────────────┴──────────────────────────────────┴──────────────────┘
+```
 
 ---
 
 ## 元件規範
 
-### Panel（面板）
-
-所有面板共用相同結構：
-
+### Panel
 ```tsx
-<div className="rounded-md border border-border bg-card p-4">
-  <h2 className="mb-3 font-mono text-sm font-medium tracking-wide text-foreground">
+<div className="rounded-md border border-border bg-card p-3">
+  <h2 className="mb-2 font-mono text-sm font-medium tracking-wide text-foreground">
     PANEL TITLE
   </h2>
-  {/* 面板內容 */}
 </div>
 ```
 
-### WorkflowGraph（SVG 工作流程圖）
+### 按鈕
+- 主要操作：`h-14 font-mono text-sm font-medium`
+- 危險操作（RUNSTOP）：`h-16 font-mono text-base font-bold` + red accent
+- 方向控制（WASD/Head）：`aspect-square font-mono text-sm font-medium`
 
-- 節點尺寸：`180 × 56 px`，間距 `24px`
-- Start / End 節點：`rx="28"`（藥丸形）
-- 一般節點：`rx="8"`（圓角矩形）
-- Decision 節點：標籤加 `?` 前綴
-- Error 節點：排列在主流程右側
-- 連線：虛線 `strokeDasharray="6 3"`，分支用 Bézier 曲線
-- Active 節點動畫：`opacity 1 → 0.3 → 1`，2 秒循環
-
-### ConnectPanel（連線狀態）
-
-- Robot 選擇器：shadcn `Select`，寬度 `w-[200px]`
-- 連線狀態框：`border border-border` muted 背景
-- Skill toggle：`variant="secondary"` (loaded) / `variant="outline"` (unloaded)
-
-### SkillsPanel（技能列表）
-
-- 垂直卡片列表
-- 狀態指示點：
-  - `bg-foreground`：已載入 + 必要
-  - `bg-muted-foreground`：僅必要
-  - `bg-muted-foreground/30`：非必要
-
-### VideoPanel（影像串流）
-
-- 2 欄 grid：Gripper cam / Map view
-- LIVE 指示器：`animate-ping` 圓點 + "LIVE" 文字
-- 無訊號：camera/map SVG icon placeholder
-
-### LIVE / OFFLINE 指示器
-
-用於表示後端 API 連線狀態：
-
-```tsx
-{/* LIVE */}
-<span className="relative flex h-1.5 w-1.5">
-  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-foreground/50" />
-  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-foreground" />
-</span>
-<span className="font-mono text-[10px] text-foreground">LIVE</span>
-
-{/* OFFLINE */}
-<span className="font-mono text-[10px] text-muted-foreground/50">OFFLINE</span>
-```
-
----
-
-## 元件庫 (shadcn/ui)
-
-使用 shadcn/ui（Radix primitives + Tailwind）。已安裝的元件位於 `components/ui/`：
-
-- `Button` — 按鈕
-- `Select` — 下拉選擇器
-- `Tabs` — 分頁
-- `Toast` (Sonner) — 通知
-
-### 新增元件原則
-
-1. 優先使用已安裝的 shadcn/ui 元件組合
-2. 需要新 Radix primitive 時，用 `npx shadcn@latest add <component>` 安裝
-3. 自訂元件放在 `components/` 根目錄，UI primitives 放在 `components/ui/`
-
----
-
-## 動畫
-
-只允許兩種動畫：
-
-| 動畫 | 用途 | 實現 |
-|---|---|---|
-| **Pulse** | Workflow active 節點 | SVG `animate` 元素，opacity 循環 |
-| **Ping** | LIVE 指示圓點 | Tailwind `animate-ping` |
-
-```
-❌ 不在面板加入 transition
-❌ 不使用 hover 動畫（除 Button 元件自帶的）
-❌ 不使用頁面切換動畫
-```
-
----
-
-## 間距參考
-
-| 場景 | Class |
-|---|---|
-| 面板之間 | `gap-4` |
-| 面板內 padding | `p-4` |
-| 標題到內容 | `mb-3` |
-| 小元素之間 | `gap-1.5` |
-| 分隔線 | `<div className="h-px bg-border" />` |
-
----
-
-## Checklist：新增功能前確認
-
-- [ ] 是否使用 `font-mono`？（數據文字必須）
-- [ ] 是否避免彩色？僅用 opacity 區分層級
-- [ ] 面板是否遵循 `rounded-md border border-border bg-card p-4` 格式？
-- [ ] 標題是否全大寫 + `tracking-wide`？
-- [ ] 是否只使用 `border` 而非 `shadow`？
-- [ ] 新動畫是否必要？（預設不加動畫）
+### 動畫
+僅允許：`animate-ping`（LIVE 圓點）、SVG `animate`（active 節點 pulse）

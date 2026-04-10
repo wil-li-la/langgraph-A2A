@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import type { WorkflowNode, WorkflowEdge } from "@/lib/mock-data"
 
 interface WorkflowGraphProps {
@@ -11,10 +11,22 @@ interface WorkflowGraphProps {
   onNodeClick?: (nodeId: string) => void
 }
 
-const NODE_WIDTH = 180
-const NODE_HEIGHT = 56
-const V_GAP = 24
-const SVG_PADDING = 48
+// Node dimensions
+const NODE_W = 120
+const NODE_H = 52
+const NODE_GAP = 12 // gap between nodes within a phase
+const PHASE_PAD = 10 // padding inside phase box
+const PHASE_GAP = 14 // gap between phase boxes
+const PHASE_LABEL_H = 16 // height for phase label
+const SVG_PAD = 16
+
+// Define phases: each phase has a label and ordered node IDs
+const PHASES = [
+  { label: "PREPARE", nodes: ["__start__", "confirm_task"] },
+  { label: "TRANSPORT", nodes: ["nav_to_pharmacy", "pickup_med"] },
+  { label: "DELIVER", nodes: ["nav_to_patient", "delivery", "check_patient_identity"] },
+  { label: "RETURN", nodes: ["return_to_origin", "__end__"] },
+] as const
 
 function getNodeColor(status: WorkflowNode["status"], type: WorkflowNode["type"]) {
   if (type === "error") {
@@ -41,12 +53,6 @@ function getNodeColor(status: WorkflowNode["status"], type: WorkflowNode["type"]
         glow: "rgba(56,189,248,0.5)",
       }
     case "pending":
-      return {
-        bg: "rgba(255,255,255,0.02)",
-        border: "rgba(255,255,255,0.10)",
-        text: "rgba(255,255,255,0.4)",
-        glow: "transparent",
-      }
     default:
       return {
         bg: "rgba(255,255,255,0.02)",
@@ -69,76 +75,63 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
-  // Layout nodes in a vertical flow with branching
-  const layout = useMemo(() => {
-    if (nodes.length === 0) return { positions: new Map(), width: 0, height: 0 }
-
-    const positions = new Map<string, { x: number; y: number }>()
-
-    const mainFlow = nodes.filter((n) => n.type !== "error")
-    const errorNode = nodes.find((n) => n.type === "error")
-
-    const centerX = SVG_PADDING + NODE_WIDTH / 2 + 60
-    let y = SVG_PADDING
-
-    mainFlow.forEach((node) => {
-      positions.set(node.id, { x: centerX, y })
-      y += NODE_HEIGHT + V_GAP
-    })
-
-    if (errorNode) {
-      const nodeIds = Array.from(positions.keys())
-      const checkPos = positions.get("check_patient_identity") || positions.get("check2") || positions.get(nodeIds[nodeIds.length - 2])
-      const deliveryPos = positions.get("delivery") || positions.get(nodeIds[nodeIds.length - 1])
-      if (checkPos && deliveryPos) {
-        positions.set(errorNode.id, {
-          x: centerX + NODE_WIDTH + 40,
-          y: (checkPos.y + deliveryPos.y) / 2,
-        })
-      } else {
-        positions.set(errorNode.id, {
-          x: centerX + NODE_WIDTH + 40,
-          y,
-        })
-      }
-    }
-
-    let maxX = 0
-    let maxY = 0
-    positions.forEach((pos) => {
-      maxX = Math.max(maxX, pos.x + NODE_WIDTH / 2)
-      maxY = Math.max(maxY, pos.y + NODE_HEIGHT)
-    })
-
-    return {
-      positions,
-      width: maxX + SVG_PADDING + 20,
-      height: maxY + SVG_PADDING + 10,
-    }
+  // Build a lookup from node ID to WorkflowNode
+  const nodeMap = useMemo(() => {
+    const m = new Map<string, WorkflowNode>()
+    nodes.forEach((n) => m.set(n.id, n))
+    return m
   }, [nodes])
 
-  // Auto-scroll to active node
-  useEffect(() => {
-    if (!activeNodeId || !scrollContainerRef.current) return
+  // Compute layout: phase boxes with nodes inside, plus error node below
+  const layout = useMemo(() => {
+    if (nodes.length === 0) return { positions: new Map(), phases: [] as { label: string; x: number; y: number; w: number; h: number }[], width: 0, height: 0, errorPos: null as { x: number; y: number } | null }
 
-    const pos = layout.positions.get(activeNodeId)
-    if (!pos) return
+    const positions = new Map<string, { x: number; y: number }>()
+    const phaseBounds: { label: string; x: number; y: number; w: number; h: number }[] = []
 
-    const container = scrollContainerRef.current
-    const { offsetWidth, offsetHeight } = container
+    let curX = SVG_PAD
+    const nodesY = SVG_PAD + PHASE_LABEL_H + PHASE_PAD + NODE_H / 2
 
-    // Target position is centered
-    const targetX = pos.x - offsetWidth / 2
-    const targetY = pos.y - offsetHeight / 2
+    for (const phase of PHASES) {
+      const phaseNodeCount = phase.nodes.length
+      const phaseInnerW = phaseNodeCount * NODE_W + (phaseNodeCount - 1) * NODE_GAP
+      const phaseW = phaseInnerW + PHASE_PAD * 2
+      const phaseH = NODE_H + PHASE_PAD * 2 + PHASE_LABEL_H
 
-    container.scrollTo({
-      left: targetX,
-      top: targetY,
-      behavior: "smooth",
-    })
-  }, [activeNodeId, layout])
+      // Position nodes within this phase
+      let nodeX = curX + PHASE_PAD + NODE_W / 2
+      for (const nodeId of phase.nodes) {
+        positions.set(nodeId, { x: nodeX, y: nodesY })
+        nodeX += NODE_W + NODE_GAP
+      }
 
-  // Determine which edges are "active" (leading to the currently executing node)
+      phaseBounds.push({
+        label: phase.label,
+        x: curX,
+        y: SVG_PAD,
+        w: phaseW,
+        h: phaseH,
+      })
+
+      curX += phaseW + PHASE_GAP
+    }
+
+    // Error node: centered below all phases
+    const errorNode = nodes.find((n) => n.type === "error")
+    let errorPos: { x: number; y: number } | null = null
+    if (errorNode) {
+      const totalW = curX - PHASE_GAP
+      const errY = nodesY + NODE_H / 2 + 36
+      errorPos = { x: totalW / 2, y: errY }
+      positions.set(errorNode.id, errorPos)
+    }
+
+    const totalWidth = curX - PHASE_GAP + SVG_PAD
+    const maxY = errorPos ? errorPos.y + NODE_H / 2 + SVG_PAD : nodesY + NODE_H / 2 + SVG_PAD + PHASE_PAD
+
+    return { positions, phases: phaseBounds, width: totalWidth, height: maxY, errorPos }
+  }, [nodes])
+
   const activeEdges = useMemo(() => {
     if (!activeNodeId) return new Set<number>()
     const set = new Set<number>()
@@ -148,7 +141,6 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
     return set
   }, [edges, activeNodeId])
 
-  // Determine which edges are "completed" (both source and target are executed)
   const completedEdgeSet = useMemo(() => {
     const executedSet = new Set(nodes.filter((n) => n.status === "completed").map((n) => n.id))
     const set = new Set<number>()
@@ -160,16 +152,47 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
     return set
   }, [edges, nodes, activeNodeId])
 
+  // Render phase group boxes
+  const renderPhases = useCallback(() => {
+    return layout.phases.map((phase, i) => (
+      <g key={`phase-${i}`}>
+        {/* Phase box */}
+        <rect
+          x={phase.x}
+          y={phase.y}
+          width={phase.w}
+          height={phase.h}
+          rx={8}
+          fill="rgba(255,255,255,0.015)"
+          stroke="rgba(255,255,255,0.06)"
+          strokeWidth={1}
+        />
+        {/* Phase label */}
+        <text
+          x={phase.x + phase.w / 2}
+          y={phase.y + 12}
+          textAnchor="middle"
+          fontSize="8"
+          fontFamily="monospace"
+          fontWeight="600"
+          letterSpacing="1"
+          fill="rgba(255,255,255,0.25)"
+        >
+          {phase.label}
+        </text>
+      </g>
+    ))
+  }, [layout.phases])
+
+  // Render edges
   const renderEdges = useCallback(() => {
     return edges.map((edge, i) => {
       const fromPos = layout.positions.get(edge.from)
       const toPos = layout.positions.get(edge.to)
       if (!fromPos || !toPos) return null
 
-      const x1 = fromPos.x
-      const y1 = fromPos.y + NODE_HEIGHT / 2
-      const x2 = toPos.x
-      const y2 = toPos.y - NODE_HEIGHT / 2
+      // Skip self-loops (check_patient_identity retry) — we'll render a special icon instead
+      if (edge.from === edge.to) return null
 
       const isActive = activeEdges.has(i)
       const isCompleted = completedEdgeSet.has(i)
@@ -178,43 +201,41 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
         ? "rgba(56,189,248,0.5)"
         : isCompleted
           ? "rgba(52,211,153,0.3)"
-          : "rgba(255,255,255,0.12)"
+          : "rgba(255,255,255,0.08)"
 
       const strokeWidth = isActive ? 2 : isCompleted ? 1.5 : 1
-      const dashArray = isActive ? undefined : "6 3"
-
+      const dashArray = isActive ? undefined : "4 3"
       const pathId = `edge-path-${i}`
 
-      if (Math.abs(x1 - x2) < 5) {
-        // Straight vertical
-        return (
-          <g key={i}>
-            <line
-              x1={x1} y1={y1} x2={x2} y2={y2}
-              stroke={edgeColor}
-              strokeWidth={strokeWidth}
-              strokeDasharray={dashArray}
-              className={isActive ? "edge-active" : undefined}
-            />
-            {/* Animated particle along active edge */}
-            {isActive && (
-              <>
-                <path id={pathId} d={`M ${x1} ${y1} L ${x2} ${y2}`} fill="none" stroke="none" />
-                <circle r="3" fill="rgba(56,189,248,0.9)">
-                  <animateMotion dur="1.5s" repeatCount="indefinite">
-                    <mpath xlinkHref={`#${pathId}`} />
-                  </animateMotion>
-                  <animate attributeName="opacity" values="1;0.3;1" dur="1.5s" repeatCount="indefinite" />
-                </circle>
-              </>
-            )}
-          </g>
-        )
-      }
+      const toIsError = nodeMap.get(edge.to)?.type === "error"
+      const sameRow = Math.abs(fromPos.y - toPos.y) < 5
 
-      // Curved path for branches
-      const midY = (y1 + y2) / 2
-      const pathD = `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`
+      let pathD: string
+
+      if (sameRow) {
+        // Horizontal: right side of from → left side of to
+        const x1 = fromPos.x + NODE_W / 2
+        const y1 = fromPos.y
+        const x2 = toPos.x - NODE_W / 2
+        const y2 = toPos.y
+        pathD = `M ${x1} ${y1} L ${x2} ${y2}`
+      } else if (toIsError) {
+        // Down to error node: exit bottom, enter top
+        const x1 = fromPos.x
+        const y1 = fromPos.y + NODE_H / 2
+        const x2 = toPos.x
+        const y2 = toPos.y - NODE_H / 2
+        const midY = (y1 + y2) / 2
+        pathD = `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`
+      } else {
+        // General curve
+        const x1 = fromPos.x + NODE_W / 2
+        const y1 = fromPos.y
+        const x2 = toPos.x - NODE_W / 2
+        const y2 = toPos.y
+        const midX = (x1 + x2) / 2
+        pathD = `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`
+      }
 
       return (
         <g key={i}>
@@ -225,34 +246,34 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
             stroke={edgeColor}
             strokeWidth={strokeWidth}
             strokeDasharray={dashArray}
-            className={isActive ? "edge-active" : undefined}
           />
           {isActive && (
-            <circle r="3" fill="rgba(56,189,248,0.9)">
-              <animateMotion dur="2s" repeatCount="indefinite">
+            <circle r="2.5" fill="rgba(56,189,248,0.9)">
+              <animateMotion dur="1s" repeatCount="indefinite">
                 <mpath xlinkHref={`#${pathId}`} />
               </animateMotion>
-              <animate attributeName="opacity" values="1;0.3;1" dur="2s" repeatCount="indefinite" />
+              <animate attributeName="opacity" values="1;0.3;1" dur="1s" repeatCount="indefinite" />
             </circle>
           )}
         </g>
       )
     })
-  }, [edges, layout.positions, activeEdges, completedEdgeSet])
+  }, [edges, layout.positions, activeEdges, completedEdgeSet, nodeMap])
 
+  // Render nodes
   const renderNodes = useCallback(() => {
     return nodes.map((node) => {
       const pos = layout.positions.get(node.id)
       if (!pos) return null
 
       const colors = getNodeColor(node.status, node.type)
-      const x = pos.x - NODE_WIDTH / 2
-      const y = pos.y - NODE_HEIGHT / 2
-      const rx = node.type === "start" || node.type === "end" ? NODE_HEIGHT / 2 : 6
+      const x = pos.x - NODE_W / 2
+      const y = pos.y - NODE_H / 2
+      const rx = node.type === "start" || node.type === "end" ? NODE_H / 2 : 5
       const isHovered = hoveredNode === node.id
-      const isSelected = selectedNode === node.id
       const isActiveNode = node.status === "active"
       const isCompleted = node.status === "completed"
+      const hasRetry = edges.some((e) => e.from === node.id && e.to === node.id)
 
       return (
         <g
@@ -268,164 +289,101 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
           }}
           style={{ cursor: isPaused && node.type !== "start" && node.type !== "end" ? "pointer" : "default" }}
         >
-          {/* Outer glow for active node */}
+          {/* Active glow */}
           {isActiveNode && (
             <rect
-              x={x - 4}
-              y={y - 4}
-              width={NODE_WIDTH + 8}
-              height={NODE_HEIGHT + 8}
-              rx={rx + 4}
-              fill="none"
-              stroke={colors.glow}
-              strokeWidth={2}
+              x={x - 3} y={y - 3}
+              width={NODE_W + 6} height={NODE_H + 6}
+              rx={rx + 3} fill="none"
+              stroke={colors.glow} strokeWidth={2}
               filter="url(#glow-filter)"
             >
-              <animate
-                attributeName="opacity"
-                values="0.6;1;0.6"
-                dur="1.5s"
-                repeatCount="indefinite"
-              />
+              <animate attributeName="opacity" values="0.6;1;0.6" dur="1.5s" repeatCount="indefinite" />
             </rect>
           )}
 
-          {/* Main node rect */}
+          {/* Node rect */}
           <rect
-            x={x}
-            y={y}
-            width={NODE_WIDTH}
-            height={NODE_HEIGHT}
+            x={x} y={y}
+            width={NODE_W} height={NODE_H}
             rx={rx}
             fill={colors.bg}
-            stroke={isSelected ? "rgba(99,102,241,0.7)" : colors.border}
-            strokeWidth={isActiveNode ? 2 : isSelected ? 1.5 : isCompleted ? 1 : 0.5}
+            stroke={colors.border}
+            strokeWidth={isActiveNode ? 2 : isCompleted ? 1 : 0.5}
             className={isActiveNode ? "node-active" : isCompleted ? "node-completed" : undefined}
           />
 
-          {/* Resume click highlight when paused */}
+          {/* Pause hover highlight */}
           {isPaused && node.type !== "start" && node.type !== "end" && isHovered && (
             <rect
-              x={x - 2}
-              y={y - 2}
-              width={NODE_WIDTH + 4}
-              height={NODE_HEIGHT + 4}
-              rx={rx + 2}
-              fill="none"
-              stroke="rgba(56,189,248,0.5)"
-              strokeWidth={1.5}
-              strokeDasharray="4 2"
+              x={x - 2} y={y - 2}
+              width={NODE_W + 4} height={NODE_H + 4}
+              rx={rx + 2} fill="none"
+              stroke="rgba(56,189,248,0.5)" strokeWidth={1.5} strokeDasharray="4 2"
             />
           )}
 
-          {/* Inner pulse for active node */}
+          {/* Active pulse */}
           {isActiveNode && (
-            <rect
-              x={x}
-              y={y}
-              width={NODE_WIDTH}
-              height={NODE_HEIGHT}
-              rx={rx}
-              fill="none"
-              stroke="rgba(56,189,248,0.4)"
-              strokeWidth={1}
-            >
-              <animate
-                attributeName="opacity"
-                values="1;0.2;1"
-                dur="2s"
-                repeatCount="indefinite"
-              />
+            <rect x={x} y={y} width={NODE_W} height={NODE_H} rx={rx}
+              fill="none" stroke="rgba(56,189,248,0.4)" strokeWidth={1}>
+              <animate attributeName="opacity" values="1;0.2;1" dur="2s" repeatCount="indefinite" />
             </rect>
           )}
 
-          {/* Completed checkmark */}
+          {/* Completed check */}
           {isCompleted && (
             <g className="check-pop">
-              <circle
-                cx={x + NODE_WIDTH - 8}
-                cy={y + 8}
-                r={7}
-                fill="rgba(52,211,153,0.9)"
-              />
-              <path
-                d={`M ${x + NODE_WIDTH - 12} ${y + 8} l 3 3 l 5 -5`}
-                fill="none"
-                stroke="white"
-                strokeWidth={1.5}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
+              <circle cx={x + NODE_W - 7} cy={y + 7} r={5} fill="rgba(52,211,153,0.9)" />
+              <path d={`M ${x + NODE_W - 10} ${y + 7} l 2 2 l 3 -3`}
+                fill="none" stroke="white" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
             </g>
           )}
 
-          {/* Decision icon */}
-          {node.type === "decision" && (
+          {/* Retry icon */}
+          {hasRetry && (
             <text
-              x={pos.x - NODE_WIDTH / 2 + 12}
-              y={pos.y - 2}
-              fontSize="14"
-              fill={colors.text}
-            >
-              {"?"}
-            </text>
+              x={x + 8} y={y + 10}
+              fontSize="9" fontFamily="monospace"
+              fill="rgba(255,255,255,0.3)"
+            >↺</text>
           )}
 
           {/* Node name */}
           <text
-            x={pos.x + (node.type === "decision" ? 4 : 0)}
-            y={pos.y - 4}
-            textAnchor="middle"
-            fontSize="12"
-            fontFamily="monospace"
-            fontWeight="500"
+            x={pos.x} y={pos.y + 1}
+            textAnchor="middle" dominantBaseline="middle"
+            fontSize="9" fontFamily="monospace" fontWeight="500"
             fill={colors.text}
           >
-            {node.name}
+            {node.type === "start" ? "START" : node.type === "end" ? "END" : node.name}
           </text>
 
-          {/* Node label */}
-          <text
-            x={pos.x + (node.type === "decision" ? 4 : 0)}
-            y={pos.y + 12}
-            textAnchor="middle"
-            fontSize="9"
-            fontFamily="monospace"
-            fill="rgba(255,255,255,0.35)"
-          >
-            {node.label}
-          </text>
-
-          {/* Hover tooltip */}
-          {isHovered && (
+          {/* Tooltip */}
+          {isHovered && node.type !== "start" && node.type !== "end" && (
             <foreignObject
-              x={pos.x + NODE_WIDTH / 2 + 8}
-              y={pos.y - 30}
-              width={160}
-              height={60}
+              x={pos.x - 75} y={pos.y + NODE_H / 2 + 4}
+              width={150} height={44}
               style={{ pointerEvents: "none" }}
             >
-              <div
-                style={{
-                  background: "rgba(15,15,20,0.95)",
-                  border: "1px solid rgba(255,255,255,0.15)",
-                  borderRadius: "6px",
-                  padding: "6px 10px",
-                  fontFamily: "monospace",
-                  fontSize: "10px",
-                  color: "rgba(255,255,255,0.85)",
-                  backdropFilter: "blur(8px)",
-                }}
-              >
-                <div style={{ fontWeight: 600, marginBottom: "2px" }}>{node.name}</div>
-                <div style={{ color: "rgba(255,255,255,0.5)" }}>{node.label}</div>
+              <div style={{
+                background: "rgba(15,15,20,0.95)",
+                border: "1px solid rgba(255,255,255,0.15)",
+                borderRadius: "5px",
+                padding: "3px 6px",
+                fontFamily: "monospace",
+                fontSize: "8px",
+                color: "rgba(255,255,255,0.85)",
+                backdropFilter: "blur(8px)",
+                textAlign: "center",
+              }}>
+                <div style={{ fontWeight: 600 }}>{node.label}</div>
                 <div style={{
                   color: node.status === "active" ? "rgb(56,189,248)"
                     : node.status === "completed" ? "rgb(52,211,153)"
                     : node.status === "error" ? "rgb(239,68,68)"
                     : "rgba(255,255,255,0.4)",
-                  fontWeight: 500,
-                  marginTop: "2px",
+                  fontWeight: 500, marginTop: "1px",
                 }}>
                   {STATUS_LABELS[node.status] || node.status}
                 </div>
@@ -435,10 +393,7 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
         </g>
       )
     })
-  }, [nodes, layout.positions, hoveredNode, selectedNode, isPaused, onNodeClick])
-
-  // Selected node detail
-  const selectedNodeData = nodes.find((n) => n.id === selectedNode)
+  }, [nodes, edges, layout.positions, hoveredNode, selectedNode, isPaused, onNodeClick])
 
   if (nodes.length === 0) {
     return (
@@ -449,61 +404,25 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div ref={scrollContainerRef} className="flex-1 overflow-auto">
-        <svg
-          width={layout.width}
-          height={layout.height}
-          viewBox={`0 0 ${layout.width} ${layout.height}`}
-          className="mx-auto"
-        >
-          {/* SVG filters for glow effect */}
-          <defs>
-            <filter id="glow-filter" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="6" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          </defs>
-          {renderEdges()}
-          {renderNodes()}
-        </svg>
-      </div>
-
-      {/* Selected node detail bar */}
-      {selectedNodeData && (
-        <div className="border-t border-border bg-background/80 px-4 py-2 backdrop-blur-sm">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <div
-                className="h-2 w-2 rounded-full"
-                style={{
-                  background: selectedNodeData.status === "active" ? "rgb(56,189,248)"
-                    : selectedNodeData.status === "completed" ? "rgb(52,211,153)"
-                    : selectedNodeData.status === "error" ? "rgb(239,68,68)"
-                    : "rgba(255,255,255,0.3)",
-                }}
-              />
-              <span className="font-mono text-[11px] font-medium text-foreground">
-                {selectedNodeData.name}
-              </span>
-            </div>
-            <span className="font-mono text-[10px] text-muted-foreground">
-              {selectedNodeData.label}
-            </span>
-            <span className="ml-auto font-mono text-[10px]" style={{
-              color: selectedNodeData.status === "active" ? "rgb(56,189,248)"
-                : selectedNodeData.status === "completed" ? "rgb(52,211,153)"
-                : selectedNodeData.status === "error" ? "rgb(239,68,68)"
-                : "rgba(255,255,255,0.4)",
-            }}>
-              {STATUS_LABELS[selectedNodeData.status] || selectedNodeData.status}
-            </span>
-          </div>
-        </div>
-      )}
+    <div ref={scrollContainerRef} className="flex h-full items-center justify-center overflow-auto">
+      <svg
+        width={layout.width}
+        height={layout.height}
+        viewBox={`0 0 ${layout.width} ${layout.height}`}
+      >
+        <defs>
+          <filter id="glow-filter" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="6" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+        {renderPhases()}
+        {renderEdges()}
+        {renderNodes()}
+      </svg>
     </div>
   )
 }

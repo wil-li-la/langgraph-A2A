@@ -95,14 +95,14 @@ export function DrivePad({ sendCommand, speedScale, disabled = false }: DrivePad
     sendCommand({ type: "drive", linear: 0, angular: 0 });
   }, [sendCommand]);
 
-  const btn = "h-14 w-14 rounded-md border border-border font-mono text-xs transition-colors hover:bg-foreground/5 active:bg-foreground/10 disabled:opacity-30";
+  const btn = "aspect-square rounded-md border border-border font-mono text-sm font-medium transition-colors hover:bg-foreground/5 active:bg-foreground/10 disabled:opacity-30";
 
   return (
     <div className="rounded-md border border-border p-2">
-      <div className="mb-1.5 font-mono text-[10px] text-muted-foreground tracking-wide">
+      <div className="mb-2 font-mono text-xs font-medium text-muted-foreground tracking-wide">
         DRIVE (WASD)
       </div>
-      <div className="grid grid-cols-3 gap-1 w-fit mx-auto">
+      <div className="grid grid-cols-3 gap-1.5">
         <div />
         <button className={btn} disabled={disabled}
           onPointerDown={() => !disabled && startDrive(BASE_LIN, 0)} onPointerUp={stopDrive} onPointerLeave={stopDrive}>
@@ -123,7 +123,7 @@ export function DrivePad({ sendCommand, speedScale, disabled = false }: DrivePad
         </button>
       </div>
       <button
-        className="mt-1.5 w-full rounded-md border border-red-400/30 bg-red-400/10 py-2 font-mono text-xs text-red-400 hover:bg-red-400/20 disabled:opacity-30"
+        className="mt-1.5 w-full rounded-md border border-red-400/30 bg-red-400/10 py-3 font-mono text-sm font-medium text-red-400 hover:bg-red-400/20 disabled:opacity-30"
         disabled={disabled}
         onClick={() => sendCommand({ type: "stop" })}
       >

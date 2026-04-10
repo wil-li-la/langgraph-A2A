@@ -9,7 +9,7 @@ import httpx
 import uvicorn
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
-from starlette.routing import Route
+from starlette.routing import Route, WebSocketRoute
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
@@ -32,6 +32,7 @@ except ImportError:
     pass  # python-dotenv not installed, that's fine in production
 
 from app.agent_executor import MedicationAgentExecutor
+from app.teleop_api import teleop_websocket
 from app.workflow_api import workflow_routes
 
 
@@ -157,7 +158,10 @@ def main(host: str, port: int):
         # Mount workflow API routes
         for route in workflow_routes:
             starlette_app.routes.insert(0, route)
-        
+
+        # Mount teleop WebSocket relay
+        starlette_app.routes.insert(0, WebSocketRoute("/ws/teleop", teleop_websocket))
+
         # Add CORS middleware for frontend dev server
         starlette_app.add_middleware(
             CORSMiddleware,
@@ -175,6 +179,7 @@ def main(host: str, port: int):
         logger.info(f'Agent card: {public_url}/.well-known/agent-card.json')
         logger.info(f'A2A JSON-RPC endpoint: POST {public_url}/')
         logger.info(f'Dashboard workflow API: {public_url}/api/workflow')
+        logger.info(f'Teleop WebSocket relay: {public_url}/ws/teleop')
         
         # Run the server
         uvicorn.run(starlette_app, host=host, port=port)

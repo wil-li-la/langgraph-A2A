@@ -1,8 +1,7 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
-import { type RobotId, taskData } from "@/lib/mock-data"
-import { ConnectPanel } from "@/components/connect-panel"
+import { useEffect, useRef } from "react"
+import { taskData } from "@/lib/mock-data"
 import { SkillsPanel } from "@/components/skills-panel"
 import { WorkflowGraph } from "@/components/workflow-graph"
 import { VideoPanel } from "@/components/video-panel"
@@ -12,8 +11,7 @@ import { useWorkflow } from "@/hooks/use-workflow"
 import { NavBar } from "@/components/nav-bar"
 
 export function RobotDashboard() {
-  const [selectedRobot, setSelectedRobot] = useState<RobotId>("stretch3")
-  const data = taskData[selectedRobot]
+  const data = taskData["stretch3"]
   const {
     nodes,
     edges,
@@ -31,7 +29,7 @@ export function RobotDashboard() {
     resetWorkflow,
     startStreamExecution,
     stopStreamExecution,
-  } = useWorkflow(selectedRobot)
+  } = useWorkflow("stretch3")
 
   const logContainerRef = useRef<HTMLDivElement>(null)
 
@@ -42,30 +40,18 @@ export function RobotDashboard() {
   }, [executionLog])
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex h-dvh flex-col bg-background overflow-hidden">
       <NavBar />
-      <div className="flex flex-1 flex-col p-4 lg:p-6">
-        <div className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-4">
-        {/* Top row: Connect Robot | Task LangGraph | Required Skills */}
-        <div className="grid gap-4 lg:grid-cols-[1fr_1.2fr_0.6fr]">
-          {/* Connect Robot panel */}
-          <div className="rounded-md border border-border bg-card p-4">
-            <ConnectPanel
-              selectedRobot={selectedRobot}
-              onSelectRobot={setSelectedRobot}
-              data={data}
-              skillsData={skillsData}
-            />
-          </div>
-
+      <div className="flex flex-1 min-h-0 gap-3 p-3">
+        {/* Left column: Graph + Video */}
+        <div className="flex flex-1 flex-col gap-3 min-h-0">
           {/* Task LangGraph */}
-          <div className="rounded-md border border-border bg-card p-4">
-            <div className="mb-3 flex items-center justify-between">
+          <div className="flex-1 rounded-md border border-border bg-card p-3 flex flex-col min-h-0">
+            <div className="mb-2 flex items-center justify-between shrink-0">
               <h2 className="font-mono text-sm font-medium tracking-wide text-foreground">
                 TASK &mdash; LANGGRAPH
               </h2>
               <div className="flex items-center gap-2">
-                {/* Reset button */}
                 <button
                   onClick={resetWorkflow}
                   disabled={isExecuting}
@@ -93,7 +79,7 @@ export function RobotDashboard() {
 
             {/* Progress bar */}
             {isExecuting && (
-              <div className="mb-2">
+              <div className="mb-2 shrink-0">
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-mono text-[9px] text-muted-foreground">PROGRESS</span>
                   <span className="font-mono text-[9px] text-muted-foreground">{progress}%</span>
@@ -110,7 +96,7 @@ export function RobotDashboard() {
               </div>
             )}
 
-            <div className="h-[420px] overflow-auto rounded-md border border-border bg-background/50">
+            <div className="flex-1 min-h-0 overflow-auto rounded-md border border-border bg-background/50">
               <WorkflowGraph
                 nodes={nodes}
                 edges={edges}
@@ -121,68 +107,64 @@ export function RobotDashboard() {
             </div>
           </div>
 
-          {/* Required Skills */}
-          <div className="rounded-md border border-border bg-card p-4">
-            <SkillsPanel skillsData={skillsData} />
-          </div>
-        </div>
-
-        {/* Bottom row: Operation Mode + Execution Log | Video streaming */}
-        <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-          {/* Left: Operation Mode + Execution Log */}
-          <div className="flex flex-col gap-4">
-            {/* Operation Mode panel */}
-            <div className="rounded-md border border-border bg-card p-4">
-              <ModeToggle
-                isExecuting={isExecuting}
-                onStreamRun={startStreamExecution}
-                onStreamStop={stopStreamExecution}
-              />
-            </div>
-
-            {/* Pause guide — shown when workflow is paused */}
-            {isPaused && pausedNodeId && pauseReason && (
-              <div className="rounded-md border border-border bg-card p-4">
-                <PauseGuide nodeId={pausedNodeId} reason={pauseReason} />
-              </div>
-            )}
-
-            {/* Execution Log */}
-            <div className="rounded-md border border-border bg-card p-4">
-              <h2 className="mb-3 font-mono text-sm font-medium tracking-wide text-foreground">
-                EXECUTION LOG
-              </h2>
-              <div ref={logContainerRef} className="h-[200px] overflow-auto rounded-md border border-border bg-background/50 p-3">
-                {executionLog.length === 0 ? (
-                  <p className="font-mono text-xs text-muted-foreground/40">No execution history</p>
-                ) : (
-                  <div className="flex flex-col gap-0.5">
-                    {executionLog.map((entry, i) => (
-                      <div
-                        key={i}
-                        className={`whitespace-pre-wrap font-mono text-[11px] leading-[1.5] ${
-                          entry.includes("✗") || entry.includes("WARNING") || entry.includes("ERROR") || entry.includes("failed")
-                            ? "text-red-400"
-                            : entry.includes("✓") || entry.includes("▶") || entry.includes("✅")
-                              ? "text-emerald-400"
-                              : "text-muted-foreground"
-                        }`}
-                      >
-                        {entry}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Video streaming panel */}
-          <div className="rounded-md border border-border bg-card p-4">
+          {/* Video streaming */}
+          <div className="shrink-0 h-[200px] rounded-md border border-border bg-card p-3">
             <VideoPanel data={data} />
           </div>
         </div>
-      </div>
+
+        {/* Right column: Skills + Mode + Log */}
+        <div className="w-[340px] shrink-0 flex flex-col gap-3 min-h-0">
+          {/* Required Skills */}
+          <div className="rounded-md border border-border bg-card p-3 shrink-0">
+            <SkillsPanel skillsData={skillsData} />
+          </div>
+
+          {/* Operation Mode */}
+          <div className="rounded-md border border-border bg-card p-3 shrink-0">
+            <ModeToggle
+              isExecuting={isExecuting}
+              onStreamRun={startStreamExecution}
+              onStreamStop={stopStreamExecution}
+            />
+          </div>
+
+          {/* Pause guide */}
+          {isPaused && pausedNodeId && pauseReason && (
+            <div className="rounded-md border border-border bg-card p-3 shrink-0">
+              <PauseGuide nodeId={pausedNodeId} reason={pauseReason} />
+            </div>
+          )}
+
+          {/* Execution Log */}
+          <div className="flex-1 min-h-0 rounded-md border border-border bg-card p-3 flex flex-col">
+            <h2 className="mb-2 font-mono text-sm font-medium tracking-wide text-foreground shrink-0">
+              EXECUTION LOG
+            </h2>
+            <div ref={logContainerRef} className="flex-1 min-h-0 overflow-auto rounded-md border border-border bg-background/50 p-2">
+              {executionLog.length === 0 ? (
+                <p className="font-mono text-xs text-muted-foreground/40">No execution history</p>
+              ) : (
+                <div className="flex flex-col gap-0.5">
+                  {executionLog.map((entry, i) => (
+                    <div
+                      key={i}
+                      className={`whitespace-pre-wrap font-mono text-[11px] leading-[1.5] ${
+                        entry.includes("✗") || entry.includes("WARNING") || entry.includes("ERROR") || entry.includes("failed")
+                          ? "text-red-400"
+                          : entry.includes("✓") || entry.includes("▶") || entry.includes("✅")
+                            ? "text-emerald-400"
+                            : "text-muted-foreground"
+                      }`}
+                    >
+                      {entry}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )

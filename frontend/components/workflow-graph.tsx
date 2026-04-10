@@ -7,6 +7,8 @@ interface WorkflowGraphProps {
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]
   activeNodeId?: string | null
+  isPaused?: boolean
+  onNodeClick?: (nodeId: string) => void
 }
 
 const NODE_WIDTH = 180
@@ -62,7 +64,7 @@ const STATUS_LABELS: Record<string, string> = {
   error: "錯誤",
 }
 
-export function WorkflowGraph({ nodes, edges, activeNodeId }: WorkflowGraphProps) {
+export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, onNodeClick }: WorkflowGraphProps) {
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -257,8 +259,14 @@ export function WorkflowGraph({ nodes, edges, activeNodeId }: WorkflowGraphProps
           key={node.id}
           onMouseEnter={() => setHoveredNode(node.id)}
           onMouseLeave={() => setHoveredNode(null)}
-          onClick={() => setSelectedNode(selectedNode === node.id ? null : node.id)}
-          style={{ cursor: "pointer" }}
+          onClick={() => {
+            if (isPaused && onNodeClick && node.type !== "start" && node.type !== "end") {
+              onNodeClick(node.id)
+            } else {
+              setSelectedNode(selectedNode === node.id ? null : node.id)
+            }
+          }}
+          style={{ cursor: isPaused && node.type !== "start" && node.type !== "end" ? "pointer" : "default" }}
         >
           {/* Outer glow for active node */}
           {isActiveNode && (
@@ -294,6 +302,21 @@ export function WorkflowGraph({ nodes, edges, activeNodeId }: WorkflowGraphProps
             strokeWidth={isActiveNode ? 2 : isSelected ? 1.5 : isCompleted ? 1 : 0.5}
             className={isActiveNode ? "node-active" : isCompleted ? "node-completed" : undefined}
           />
+
+          {/* Resume click highlight when paused */}
+          {isPaused && node.type !== "start" && node.type !== "end" && isHovered && (
+            <rect
+              x={x - 2}
+              y={y - 2}
+              width={NODE_WIDTH + 4}
+              height={NODE_HEIGHT + 4}
+              rx={rx + 2}
+              fill="none"
+              stroke="rgba(56,189,248,0.5)"
+              strokeWidth={1.5}
+              strokeDasharray="4 2"
+            />
+          )}
 
           {/* Inner pulse for active node */}
           {isActiveNode && (
@@ -412,7 +435,7 @@ export function WorkflowGraph({ nodes, edges, activeNodeId }: WorkflowGraphProps
         </g>
       )
     })
-  }, [nodes, layout.positions, hoveredNode, selectedNode])
+  }, [nodes, layout.positions, hoveredNode, selectedNode, isPaused, onNodeClick])
 
   // Selected node detail
   const selectedNodeData = nodes.find((n) => n.id === selectedNode)

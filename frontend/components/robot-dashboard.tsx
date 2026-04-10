@@ -7,6 +7,7 @@ import { SkillsPanel } from "@/components/skills-panel"
 import { WorkflowGraph } from "@/components/workflow-graph"
 import { VideoPanel } from "@/components/video-panel"
 import { ModeToggle } from "@/components/mode-toggle"
+import { PauseGuide } from "@/components/pause-guide"
 import { useWorkflow } from "@/hooks/use-workflow"
 import { NavBar } from "@/components/nav-bar"
 
@@ -23,6 +24,10 @@ export function RobotDashboard() {
     activeNodeId,
     executionLog,
     progress,
+    isPaused,
+    pausedNodeId,
+    pauseReason,
+    resumeFromNode,
     resetWorkflow,
     startStreamExecution,
     stopStreamExecution,
@@ -110,6 +115,8 @@ export function RobotDashboard() {
                 nodes={nodes}
                 edges={edges}
                 activeNodeId={activeNodeId}
+                isPaused={isPaused}
+                onNodeClick={resumeFromNode}
               />
             </div>
           </div>
@@ -132,6 +139,13 @@ export function RobotDashboard() {
                 onStreamStop={stopStreamExecution}
               />
             </div>
+
+            {/* Pause guide — shown when workflow is paused */}
+            {isPaused && pausedNodeId && pauseReason && (
+              <div className="rounded-md border border-border bg-card p-4">
+                <PauseGuide nodeId={pausedNodeId} reason={pauseReason} />
+              </div>
+            )}
 
             {/* Execution Log */}
             <div className="rounded-md border border-border bg-card p-4">

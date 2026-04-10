@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import type { RobotId, WorkflowNode, WorkflowEdge } from "@/lib/mock-data"
 import { taskData } from "@/lib/mock-data"
-import { fetchWorkflow, fetchSkills, executeWorkflowStream, type WorkflowData, type SkillsData, type ExecutionResult } from "@/lib/api"
+import { fetchWorkflow, fetchSkills, executeWorkflowStream, resumeWorkflowStream, type WorkflowData, type SkillsData, type ExecutionResult } from "@/lib/api"
 
 interface UseWorkflowResult {
   nodes: WorkflowNode[]
@@ -19,8 +19,13 @@ interface UseWorkflowResult {
   progress: number
   refetch: () => void
   resetWorkflow: () => void
+  isPaused: boolean
+  pausedNodeId: string | null
+  pauseReason: string | null
+  sessionId: string | null
   startStreamExecution: (instruction: string) => Promise<ExecutionResult | null>
   stopStreamExecution: () => void
+  resumeFromNode: (nodeId: string) => Promise<ExecutionResult | null>
 }
 
 /**
@@ -41,6 +46,10 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
   const [executedNodes, setExecutedNodes] = useState<string[]>([])
   const [executionLog, setExecutionLog] = useState<string[]>([])
   const [abortController, setAbortController] = useState<AbortController | null>(null)
+  const [isPaused, setIsPaused] = useState(false)
+  const [pausedNodeId, setPausedNodeId] = useState<string | null>(null)
+  const [pauseReason, setPauseReason] = useState<string | null>(null)
+  const [sessionId, setSessionId] = useState<string | null>(null)
 
   const doFetch = useCallback(async () => {
     setIsLoading(true)
@@ -99,6 +108,13 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
         onError: (errMsg) => {
           setExecutionLog((prev) => [...prev, `\n✗ Workflow error: ${errMsg}`])
         },
+        onPaused: (nodeId, reason, sid) => {
+          setIsPaused(true)
+          setPausedNodeId(nodeId)
+          setPauseReason(reason)
+          setSessionId(sid)
+          setExecutionLog((prev) => [...prev, `\n⚠ Workflow paused at ${nodeId}: ${reason}`])
+        },
       }, controller.signal)
       return result
     } catch (err) {
@@ -124,11 +140,71 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
     }
   }, [abortController])
 
+  const resumeFromNode = useCallback(async (nodeId: string): Promise<ExecutionResult | null> => {
+    if (!sessionId) return null
+
+    setIsPaused(false)
+    setPausedNodeId(null)
+    setPauseReason(null)
+    setIsExecuting(true)
+    setActiveNodeId(null)
+
+    const controller = new AbortController()
+    setAbortController(controller)
+
+    try {
+      const result = await resumeWorkflowStream(sessionId, nodeId, {
+        onNodeStart: (nid, executed) => {
+          setActiveNodeId(nid)
+          setExecutedNodes([...executed])
+        },
+        onNodeEnd: (nid, executed) => {
+          setActiveNodeId(null)
+          setExecutedNodes([...executed])
+        },
+        onLog: (text) => {
+          setExecutionLog((prev) => [...prev, text])
+        },
+        onDone: (result) => {
+          setSessionId(null)
+          setExecutionLog((prev) => [...prev, `\n✓ Workflow completed: ${result.task_status}`])
+        },
+        onError: (errMsg) => {
+          setExecutionLog((prev) => [...prev, `\n✗ Workflow error: ${errMsg}`])
+        },
+        onPaused: (nid, reason, sid) => {
+          setIsPaused(true)
+          setPausedNodeId(nid)
+          setPauseReason(reason)
+          setSessionId(sid)
+          setExecutionLog((prev) => [...prev, `\n⚠ Workflow paused at ${nid}: ${reason}`])
+        },
+      }, controller.signal)
+      return result
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setExecutionLog((prev) => [...prev, `\n⚠️ Workflow execution stopped by user`])
+        return null
+      }
+      const msg = err instanceof Error ? err.message : "Unknown error"
+      setExecutionLog((prev) => [...prev, `✗ Error: ${msg}`])
+      return null
+    } finally {
+      setIsExecuting(false)
+      setActiveNodeId(null)
+      setAbortController(null)
+    }
+  }, [sessionId])
+
   // Reset all execution state
   const resetWorkflow = useCallback(() => {
     setActiveNodeId(null)
     setExecutedNodes([])
     setExecutionLog([])
+    setIsPaused(false)
+    setPausedNodeId(null)
+    setPauseReason(null)
+    setSessionId(null)
   }, [])
 
   // Render live nodes only — do not fall back to mock nodes anymore!
@@ -167,9 +243,14 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
     executedNodes,
     executionLog,
     progress,
+    isPaused,
+    pausedNodeId,
+    pauseReason,
+    sessionId,
     refetch: doFetch,
     resetWorkflow,
     startStreamExecution,
     stopStreamExecution,
+    resumeFromNode,
   }
 }

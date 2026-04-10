@@ -35,13 +35,15 @@ export interface ExecutionResult {
 
 /** SSE event types emitted by the streaming endpoint. */
 export interface StreamEvent {
-  event: "node_start" | "node_end" | "done" | "error" | "log"
+  event: "node_start" | "node_end" | "done" | "error" | "log" | "paused"
   node_id?: string
   executed_nodes?: string[]
   history?: string[]
   task_status?: string
   result?: ExecutionResult
   text?: string
+  session_id?: string
+  reason?: string
 }
 
 export interface StreamCallbacks {
@@ -50,6 +52,7 @@ export interface StreamCallbacks {
   onDone?: (result: ExecutionResult) => void
   onError?: (error: string) => void
   onLog?: (text: string) => void
+  onPaused?: (nodeId: string, reason: string, sessionId: string) => void
 }
 
 /**
@@ -170,6 +173,13 @@ export async function executeWorkflowStream(
             finalResult = event.result ?? null
             callbacks.onDone?.(finalResult!)
             break
+          case "paused":
+            callbacks.onPaused?.(
+              event.node_id ?? "",
+              event.reason ?? "",
+              event.session_id ?? "",
+            )
+            break
           case "error":
             callbacks.onError?.(event.node_id ?? "Unknown error")
             break
@@ -181,7 +191,89 @@ export async function executeWorkflowStream(
   }
 
   if (!finalResult) {
-    throw new Error("Stream ended without a 'done' event")
+    return null as unknown as ExecutionResult
+  }
+
+  return finalResult
+}
+
+/**
+ * Resume a paused workflow from a specific node via SSE streaming.
+ */
+export async function resumeWorkflowStream(
+  sessionId: string,
+  nodeId: string,
+  callbacks: StreamCallbacks,
+  signal?: AbortSignal,
+): Promise<ExecutionResult | null> {
+  const res = await fetch(`${API_BASE}/api/workflow/resume`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, node_id: nodeId }),
+    signal,
+  })
+
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Resume failed: ${res.status} ${body}`)
+  }
+
+  const reader = res.body?.getReader()
+  if (!reader) throw new Error("No readable stream")
+
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let finalResult: ExecutionResult | null = null
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+
+    const lines = buffer.split("\n\n")
+    buffer = lines.pop() ?? ""
+
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed.startsWith("data: ")) continue
+
+      try {
+        const event: StreamEvent = JSON.parse(trimmed.slice(6))
+
+        switch (event.event) {
+          case "log":
+            if (event.text) callbacks.onLog?.(event.text)
+            break
+          case "node_start":
+            callbacks.onNodeStart?.(event.node_id ?? "", event.executed_nodes ?? [])
+            break
+          case "node_end":
+            callbacks.onNodeEnd?.(
+              event.node_id ?? "",
+              event.executed_nodes ?? [],
+              event.history ?? [],
+            )
+            break
+          case "done":
+            finalResult = event.result ?? null
+            callbacks.onDone?.(finalResult!)
+            break
+          case "paused":
+            callbacks.onPaused?.(
+              event.node_id ?? "",
+              event.reason ?? "",
+              event.session_id ?? "",
+            )
+            break
+          case "error":
+            callbacks.onError?.(event.node_id ?? "Unknown error")
+            break
+        }
+      } catch {
+        // ignore malformed JSON
+      }
+    }
   }
 
   return finalResult

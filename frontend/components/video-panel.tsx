@@ -8,7 +8,7 @@ export function VideoPanel() {
   return (
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-center justify-between shrink-0">
-        <h2 className="font-mono text-sm font-medium tracking-wide text-foreground">
+        <h2 className="font-mono text-lg font-medium tracking-wide text-foreground">
           VIDEO &amp; MAP
         </h2>
       </div>
@@ -20,14 +20,14 @@ export function VideoPanel() {
             <CameraView name="realsense" src={cameras.realsense} />
           </div>
           <div className="flex items-center justify-between border-t border-border px-2 py-1 shrink-0">
-            <span className="font-mono text-xs text-muted-foreground">Head</span>
+            <span className="font-mono text-base text-muted-foreground">Head</span>
             {cameras.realsense && (
               <div className="flex items-center gap-1">
                 <span className="relative flex h-1.5 w-1.5">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-foreground/50" />
                   <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-foreground" />
                 </span>
-                <span className="font-mono text-xs text-foreground">LIVE</span>
+                <span className="font-mono text-base text-foreground">LIVE</span>
               </div>
             )}
           </div>
@@ -39,14 +39,14 @@ export function VideoPanel() {
             <CameraView name="gripper" src={cameras.gripper} />
           </div>
           <div className="flex items-center justify-between border-t border-border px-2 py-1 shrink-0">
-            <span className="font-mono text-xs text-muted-foreground">Gripper</span>
+            <span className="font-mono text-base text-muted-foreground">Gripper</span>
             {cameras.gripper && (
               <div className="flex items-center gap-1">
                 <span className="relative flex h-1.5 w-1.5">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-foreground/50" />
                   <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-foreground" />
                 </span>
-                <span className="font-mono text-xs text-foreground">LIVE</span>
+                <span className="font-mono text-base text-foreground">LIVE</span>
               </div>
             )}
           </div>
@@ -63,7 +63,7 @@ export function VideoPanel() {
             />
           </div>
           <div className="flex items-center border-t border-border px-2 py-1 shrink-0">
-            <span className="font-mono text-xs text-muted-foreground">Map</span>
+            <span className="font-mono text-base text-muted-foreground">Map</span>
           </div>
         </div>
       </div>

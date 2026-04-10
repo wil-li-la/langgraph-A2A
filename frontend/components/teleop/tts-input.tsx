@@ -26,10 +26,10 @@ export function TtsInput({ sendCommand, onSend }: TtsInputProps) {
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && send()}
-        className="flex-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+        className="flex-1 h-12 rounded-md border border-border bg-background px-3 font-mono text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
       />
       <button
-        className="rounded-md border border-border px-4 py-2 font-mono text-xs font-medium transition-colors hover:bg-foreground/10 disabled:opacity-30"
+        className="h-12 rounded-md border border-border px-5 font-mono text-base font-medium transition-colors hover:bg-foreground/10 disabled:opacity-30"
         onClick={send}
         disabled={!text.trim()}
       >

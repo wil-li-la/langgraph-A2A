@@ -21,7 +21,7 @@ export function ChatLog({ entries }: ChatLogProps) {
   }, [entries.length]);
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto rounded-md border border-border bg-background/50 p-2 font-mono text-xs space-y-1">
+    <div className="h-full overflow-y-auto rounded-md border border-border bg-background/50 p-2 font-mono text-base space-y-1">
       {entries.length === 0 && (
         <div className="text-muted-foreground text-center py-4">No messages</div>
       )}

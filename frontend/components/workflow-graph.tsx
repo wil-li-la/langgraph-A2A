@@ -172,7 +172,7 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
           x={phase.x + phase.w / 2}
           y={phase.y + 12}
           textAnchor="middle"
-          fontSize="8"
+          fontSize="12"
           fontFamily="monospace"
           fontWeight="600"
           letterSpacing="1"
@@ -344,7 +344,7 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
           {hasRetry && (
             <text
               x={x + 8} y={y + 10}
-              fontSize="9" fontFamily="monospace"
+              fontSize="14" fontFamily="monospace"
               fill="rgba(255,255,255,0.3)"
             >↺</text>
           )}
@@ -353,7 +353,7 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
           <text
             x={pos.x} y={pos.y + 1}
             textAnchor="middle" dominantBaseline="middle"
-            fontSize="9" fontFamily="monospace" fontWeight="500"
+            fontSize="14" fontFamily="monospace" fontWeight="500"
             fill={colors.text}
           >
             {node.type === "start" ? "START" : node.type === "end" ? "END" : node.name}
@@ -372,7 +372,7 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
                 borderRadius: "5px",
                 padding: "3px 6px",
                 fontFamily: "monospace",
-                fontSize: "8px",
+                fontSize: "12px",
                 color: "rgba(255,255,255,0.85)",
                 backdropFilter: "blur(8px)",
                 textAlign: "center",
@@ -398,7 +398,7 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
   if (nodes.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="font-mono text-xs text-muted-foreground">No active workflow</p>
+        <p className="font-mono text-base text-muted-foreground">No active workflow</p>
       </div>
     )
   }

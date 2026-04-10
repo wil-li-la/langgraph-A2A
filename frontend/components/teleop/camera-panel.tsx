@@ -18,9 +18,9 @@ export function CameraPanel({ frames, navState, robotPose, navPath, sendCommand 
   return (
     <Tabs defaultValue="overhead" className="h-full flex flex-col">
       <TabsList className="grid w-full grid-cols-3 shrink-0 bg-muted/50">
-        <TabsTrigger value="overhead" className="font-mono text-[10px]">OVERHEAD</TabsTrigger>
-        <TabsTrigger value="gripper" className="font-mono text-[10px]">GRIPPER</TabsTrigger>
-        <TabsTrigger value="map" className="font-mono text-[10px]">MAP</TabsTrigger>
+        <TabsTrigger value="overhead" className="font-mono text-base">OVERHEAD</TabsTrigger>
+        <TabsTrigger value="gripper" className="font-mono text-base">GRIPPER</TabsTrigger>
+        <TabsTrigger value="map" className="font-mono text-base">MAP</TabsTrigger>
       </TabsList>
       <TabsContent value="overhead" className="mt-1 flex-1 min-h-0">
         <div className="grid grid-cols-2 gap-1 h-full">

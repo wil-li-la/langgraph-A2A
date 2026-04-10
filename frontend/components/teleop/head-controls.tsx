@@ -35,12 +35,12 @@ export function HeadControls({ sendCommand, speedScale }: HeadControlsProps) {
     }
   }, []);
 
-  const btn = "aspect-square rounded-md border border-border font-mono text-sm font-medium transition-colors hover:bg-foreground/5 active:bg-foreground/10";
-  const preset = "flex-1 rounded-md border border-border py-2 font-mono text-xs text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground text-center";
+  const btn = "aspect-square rounded-md border border-border font-mono text-base font-medium transition-colors hover:bg-foreground/5 active:bg-foreground/10";
+  const preset = "flex-1 h-[66px] rounded-md border border-border font-mono text-base font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground text-center";
 
   return (
     <div className="rounded-md border border-border p-2">
-      <div className="mb-2 font-mono text-xs font-medium text-muted-foreground tracking-wide">
+      <div className="mb-2 font-mono text-lg font-medium text-muted-foreground tracking-wide">
         HEAD
       </div>
       <div className="grid grid-cols-3 gap-1.5">

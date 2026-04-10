@@ -56,7 +56,7 @@ export function CameraView({ name, src }: CameraViewProps) {
         className="max-w-full max-h-full object-contain"
       />
       {!src && (
-        <div className="absolute inset-0 flex items-center justify-center font-mono text-xs text-muted-foreground">
+        <div className="absolute inset-0 flex items-center justify-center font-mono text-base text-muted-foreground">
           NO SIGNAL &mdash; {name.toUpperCase()}
         </div>
       )}

@@ -29,6 +29,7 @@ export interface RobotStatus {
 
 export type JointName = keyof JointPositions;
 
+// Increments per step in radians (matching stretch_web_teleop official values)
 export const JOINT_INCREMENTS: Partial<Record<JointName, number>> = {
   joint_lift: 0.05,
   wrist_extension: 0.05,
@@ -37,9 +38,23 @@ export const JOINT_INCREMENTS: Partial<Record<JointName, number>> = {
   joint_wrist_yaw: 0.2,
   joint_wrist_pitch: 0.2,
   joint_wrist_roll: 0.2,
-  joint_gripper_finger_left: 3,
+  joint_gripper_finger_left: 0.075, // radians, matching official stretch_web_teleop
   translate_mobile_base: 0.1,
   rotate_mobile_base: 0.2,
+};
+
+// Joint limits in radians (from stretch_web_teleop official)
+export const JOINT_LIMITS: Partial<Record<JointName, [number, number]>> = {
+  joint_lift: [0.0, 1.1],
+  wrist_extension: [0.0, 0.52],
+  joint_head_pan: [-4.07, 1.74],
+  joint_head_tilt: [-1.53, 0.79],
+  joint_wrist_yaw: [-1.75, 4.62],
+  joint_wrist_pitch: [-1.57, 0.56],
+  joint_wrist_roll: [-3.14, 3.14],
+  joint_gripper_finger_left: [-0.37, 0.17], // fully closed to fully open
+  translate_mobile_base: [-1.0, 1.0],
+  rotate_mobile_base: [-1.0, 1.0],
 };
 
 export const JOINT_LABELS: Partial<Record<JointName, string>> = {

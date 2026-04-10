@@ -9,7 +9,7 @@ interface SkillsPanelProps {
 export function SkillsPanel({ skillsData }: SkillsPanelProps) {
   return (
     <div className="flex h-full flex-col gap-3">
-      <h2 className="font-mono text-sm font-medium tracking-wide text-foreground">
+      <h2 className="font-mono text-lg font-medium tracking-wide text-foreground">
         REQUIRED SKILLS
       </h2>
       <div className="flex flex-col gap-2">
@@ -26,16 +26,16 @@ export function SkillsPanel({ skillsData }: SkillsPanelProps) {
                     isLoaded ? "bg-foreground" : "bg-muted-foreground/30"
                   }`}
                 />
-                <span className="text-xs text-foreground capitalize">
+                <span className="text-base text-foreground capitalize">
                   {skillId}
                 </span>
               </div>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-base text-muted-foreground">
                 {isLoaded ? "loaded" : "pending"}
               </span>
             </div>
           )
-        }) : <span className="font-mono text-xs text-muted-foreground/50">loading...</span>}
+        }) : <span className="font-mono text-base text-muted-foreground/50">loading...</span>}
       </div>
     </div>
   )

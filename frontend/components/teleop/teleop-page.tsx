@@ -49,8 +49,16 @@ export function TeleopPage() {
           <SpeedScale scale={speedScale} onChange={setSpeedScale} />
         </div>
 
-        {/* Center column: Cameras + Map + TTS + Chat */}
+        {/* Center column: TTS + Chat on top, Cameras below */}
         <div className="flex flex-col gap-2 min-h-0">
+          {/* TTS + Chat (top, above cameras so keyboard doesn't block) */}
+          <div className="shrink-0">
+            <TtsInput sendCommand={sendCommand} onSend={(text) => addChatEntry("speech", text)} />
+          </div>
+          <div className="shrink-0 h-[80px] overflow-hidden">
+            <ChatLog entries={chatEntries} />
+          </div>
+
           {/* 2×2 camera/map grid */}
           <div className="flex-1 grid grid-cols-2 grid-rows-2 gap-2 min-h-0">
             <div className="rounded-md border border-border overflow-hidden min-h-0">
@@ -71,20 +79,12 @@ export function TeleopPage() {
               />
             </div>
           </div>
-
-          {/* TTS + Chat (compact) */}
-          <div className="shrink-0">
-            <TtsInput sendCommand={sendCommand} onSend={(text) => addChatEntry("speech", text)} />
-          </div>
-          <div className="shrink-0 h-[80px]">
-            <ChatLog entries={chatEntries} />
-          </div>
         </div>
 
         {/* Right column: Arm/manipulation controls (right hand) */}
         <div className="flex flex-col gap-2 min-h-0 overflow-y-auto">
           <JointControls joints={status.joints} sendCommand={sendCommand} speedScale={speedScale} />
-          <GripperButtons sendCommand={sendCommand} speedScale={speedScale} />
+          <GripperButtons joints={status.joints} sendCommand={sendCommand} speedScale={speedScale} />
           <HomeButton isHomed={status.is_homed} sendCommand={sendCommand} />
         </div>
 

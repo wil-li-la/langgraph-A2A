@@ -115,14 +115,14 @@ export function NavMap({ navState, robotPose, navPath, sendCommand }: NavMapProp
   return (
     <div className="relative w-full h-full rounded-md border border-border bg-background/50 overflow-hidden flex flex-col">
       <div className="flex items-center justify-between px-2 py-1.5 shrink-0">
-        <span className={`font-mono text-xs font-medium ${
+        <span className={`font-mono text-base font-medium ${
           navState === "failed" ? "text-red-400" : "text-muted-foreground"
         }`}>
           NAV: {stateLabel[navState]}
         </span>
         {navState === "navigating" && (
           <button
-            className="rounded-md border border-red-400/30 bg-red-400/10 px-3 py-1 font-mono text-xs font-medium text-red-400 hover:bg-red-400/20"
+            className="rounded-md border border-red-400/30 bg-red-400/10 px-3 py-1 font-mono text-base font-medium text-red-400 hover:bg-red-400/20"
             onClick={() => sendCommand({ type: "cancel_nav" })}
           >
             CANCEL
@@ -144,7 +144,7 @@ export function NavMap({ navState, robotPose, navPath, sendCommand }: NavMapProp
           onClick={handleClick}
         />
         {!mapLoaded && (
-          <div className="absolute inset-0 flex items-center justify-center font-mono text-xs text-muted-foreground">
+          <div className="absolute inset-0 flex items-center justify-center font-mono text-base text-muted-foreground">
             LOADING MAP...
           </div>
         )}

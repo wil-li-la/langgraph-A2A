@@ -64,11 +64,16 @@ def _introspect_graph() -> dict:
         "handle_error": "error_handler_node",
     }
 
+    # Internal nodes hidden from the dashboard graph
+    _HIDDEN_NODES = {"resume_router"}
+
     # Extract nodes from the graph
     nodes = []
     raw_nodes = raw.get("nodes", [])
     for node_data in raw_nodes:
         node_id = node_data.get("id", "")
+        if node_id in _HIDDEN_NODES:
+            continue
         node_type = node_type_map.get(node_id, "process")
 
         nodes.append({
@@ -79,7 +84,8 @@ def _introspect_graph() -> dict:
             "status": "pending",
         })
 
-    # Extract edges
+    # Extract edges, skipping those involving hidden nodes and
+    # rewiring __start__ to point to confirm_task instead.
     edges = []
     raw_edges = raw.get("edges", [])
     for edge_data in raw_edges:
@@ -87,11 +93,19 @@ def _introspect_graph() -> dict:
         target = edge_data.get("target", "")
         is_conditional = edge_data.get("conditional", False)
 
+        if source in _HIDDEN_NODES or target in _HIDDEN_NODES:
+            continue
+
         edges.append({
             "from": source,
             "to": target,
             "conditional": is_conditional,
         })
+
+    # Ensure __start__ connects to confirm_task (since resume_router is hidden)
+    start_has_edge = any(e["from"] == "__start__" for e in edges)
+    if not start_has_edge:
+        edges.insert(0, {"from": "__start__", "to": "confirm_task", "conditional": False})
 
     return {"nodes": nodes, "edges": edges}
 
@@ -493,9 +507,9 @@ async def get_skills(request: Request) -> JSONResponse:
 # Starlette route list to be mounted on the main app
 workflow_routes = [
     Route("/api/workflow", get_workflow, methods=["GET"]),
-    Route("/api/workflow/execute", execute_workflow, methods=["POST"]),
-    Route("/api/workflow/execute/stream", execute_workflow_stream, methods=["POST"]),
-    Route("/api/workflow/resume", resume_workflow_stream, methods=["POST"]),
+    Route("/api/workflow/execute", execute_workflow, methods=["POST", "OPTIONS"]),
+    Route("/api/workflow/execute/stream", execute_workflow_stream, methods=["POST", "OPTIONS"]),
+    Route("/api/workflow/resume", resume_workflow_stream, methods=["POST", "OPTIONS"]),
     Route("/api/skills", get_skills, methods=["GET"]),
     Route("/api/stream/d405/rgb", stream_d405_rgb, methods=["GET"]),
     Route("/api/stream/d405/depth", stream_d405_depth, methods=["GET"]),

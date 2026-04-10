@@ -114,7 +114,7 @@ export function VideoPanel({ data }: VideoPanelProps) {
               <img
                 src={`${API_BASE}/api/stream/d435if/${streamMode}`}
                 alt="Head Camera Stream"
-                className="h-full w-full object-cover"
+                className="h-full w-full object-cover rotate-90"
                 key={`d435if-${streamMode}`}
                 onError={(e) => {
                   (e.target as HTMLImageElement).style.display = 'none';

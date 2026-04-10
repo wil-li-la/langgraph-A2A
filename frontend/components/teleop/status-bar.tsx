@@ -9,7 +9,7 @@ interface StatusBarProps {
 
 export function StatusBar({ status, isConnected }: StatusBarProps) {
   return (
-    <div className="flex items-center gap-3 flex-wrap font-mono text-base">
+    <div className="flex items-center gap-3 flex-wrap font-mono text-sm">
       <span className="flex items-center gap-1.5">
         <span
           className={`inline-block h-2 w-2 rounded-full ${

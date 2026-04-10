@@ -53,24 +53,24 @@ export function RobotDashboard() {
                 <button
                   onClick={resetWorkflow}
                   disabled={isExecuting}
-                  className="rounded border border-border px-2 py-0.5 font-mono text-base text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:opacity-30"
+                  className="rounded border border-border px-2 py-0.5 font-mono text-sm text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:opacity-30"
                   title="Reset graph state"
                 >
                   ↺ RESET
                 </button>
 
                 {isLoading ? (
-                  <span className="font-mono text-base text-muted-foreground">loading…</span>
+                  <span className="font-mono text-sm text-muted-foreground">loading…</span>
                 ) : isLive ? (
                   <>
                     <span className="relative flex h-1.5 w-1.5">
                       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-foreground/50" />
                       <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-foreground" />
                     </span>
-                    <span className="font-mono text-base text-foreground">LIVE</span>
+                    <span className="font-mono text-sm text-foreground">LIVE</span>
                   </>
                 ) : (
-                  <span className="font-mono text-base text-muted-foreground/50">OFFLINE</span>
+                  <span className="font-mono text-sm text-muted-foreground/50">OFFLINE</span>
                 )}
               </div>
             </div>
@@ -79,8 +79,8 @@ export function RobotDashboard() {
             {isExecuting && (
               <div className="mb-2 shrink-0">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="font-mono text-base text-muted-foreground">PROGRESS</span>
-                  <span className="font-mono text-base text-muted-foreground">{progress}%</span>
+                  <span className="font-mono text-sm text-muted-foreground">PROGRESS</span>
+                  <span className="font-mono text-sm text-muted-foreground">{progress}%</span>
                 </div>
                 <div className="h-1 w-full rounded-full bg-border overflow-hidden">
                   <div
@@ -141,13 +141,13 @@ export function RobotDashboard() {
             </h2>
             <div ref={logContainerRef} className="flex-1 min-h-0 overflow-auto rounded-md border border-border bg-background/50 p-2">
               {executionLog.length === 0 ? (
-                <p className="font-mono text-base text-muted-foreground/40">No execution history</p>
+                <p className="font-mono text-sm text-muted-foreground/40">No execution history</p>
               ) : (
                 <div className="flex flex-col gap-0.5">
                   {executionLog.map((entry, i) => (
                     <div
                       key={i}
-                      className={`whitespace-pre-wrap font-mono text-base leading-[1.5] ${
+                      className={`whitespace-pre-wrap font-mono text-sm leading-[1.5] ${
                         entry.includes("✗") || entry.includes("WARNING") || entry.includes("ERROR") || entry.includes("failed")
                           ? "text-red-400"
                           : entry.includes("✓") || entry.includes("▶") || entry.includes("✅")

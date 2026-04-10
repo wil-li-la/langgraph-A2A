@@ -26,16 +26,16 @@ export function SkillsPanel({ skillsData }: SkillsPanelProps) {
                     isLoaded ? "bg-foreground" : "bg-muted-foreground/30"
                   }`}
                 />
-                <span className="text-base text-foreground capitalize">
+                <span className="text-sm text-foreground capitalize">
                   {skillId}
                 </span>
               </div>
-              <span className="text-base text-muted-foreground">
+              <span className="text-sm text-muted-foreground">
                 {isLoaded ? "loaded" : "pending"}
               </span>
             </div>
           )
-        }) : <span className="font-mono text-base text-muted-foreground/50">loading...</span>}
+        }) : <span className="font-mono text-sm text-muted-foreground/50">loading...</span>}
       </div>
     </div>
   )

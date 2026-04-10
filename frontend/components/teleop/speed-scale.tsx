@@ -13,10 +13,10 @@ export function SpeedScale({ scale, onChange }: SpeedScaleProps) {
   return (
     <div className="rounded-md border border-border p-3">
       <div className="flex items-center justify-between mb-3">
-        <span className="font-mono text-base font-medium text-muted-foreground tracking-wide">
+        <span className="font-mono text-sm font-medium text-muted-foreground tracking-wide">
           SPEED
         </span>
-        <span className="font-mono text-base font-bold text-foreground">
+        <span className="font-mono text-sm font-bold text-foreground">
           {scale.toFixed(2)}x
         </span>
       </div>
@@ -34,7 +34,7 @@ export function SpeedScale({ scale, onChange }: SpeedScaleProps) {
           background: "transparent",
         }}
       />
-      <div className="flex justify-between mt-1 font-mono text-base text-muted-foreground">
+      <div className="flex justify-between mt-1 font-mono text-sm text-muted-foreground">
         <span>{MIN}x</span>
         <span>1x</span>
         <span>{MAX}x</span>

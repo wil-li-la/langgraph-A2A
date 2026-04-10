@@ -47,7 +47,7 @@ export function ModeToggle({ isExecuting = false, onStreamRun, onStreamStop, onE
         <div className="flex rounded-full border border-border bg-background/50 p-0.5">
           <button
             onClick={() => setMode("manual")}
-            className={`rounded-full px-3 py-1 font-mono text-base font-medium transition-colors ${
+            className={`rounded-full px-3 py-1 font-mono text-sm font-medium transition-colors ${
               mode === "manual"
                 ? "bg-foreground text-background"
                 : "text-muted-foreground hover:text-foreground"
@@ -57,7 +57,7 @@ export function ModeToggle({ isExecuting = false, onStreamRun, onStreamStop, onE
           </button>
           <button
             onClick={() => setMode("auto")}
-            className={`rounded-full px-3 py-1 font-mono text-base font-medium transition-colors ${
+            className={`rounded-full px-3 py-1 font-mono text-sm font-medium transition-colors ${
               mode === "auto"
                 ? "bg-foreground text-background"
                 : "text-muted-foreground hover:text-foreground"
@@ -78,7 +78,7 @@ export function ModeToggle({ isExecuting = false, onStreamRun, onStreamStop, onE
               onChange={(e) => setInstruction(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleRun()}
               placeholder="請將阿斯匹靈送給張小明 …"
-              className="flex-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-base text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-foreground/20"
+              className="flex-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-foreground/20"
               disabled={isExecuting}
             />
             {isExecuting ? (
@@ -98,7 +98,7 @@ export function ModeToggle({ isExecuting = false, onStreamRun, onStreamStop, onE
               <button
                 onClick={handleRun}
                 disabled={!instruction.trim()}
-                className="rounded-md border border-border bg-foreground px-4 py-2 font-mono text-base font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-30"
+                className="rounded-md border border-border bg-foreground px-4 py-2 font-mono text-sm font-medium text-background transition-opacity hover:opacity-90 disabled:opacity-30"
               >
                 ▶ RUN
               </button>
@@ -108,8 +108,8 @@ export function ModeToggle({ isExecuting = false, onStreamRun, onStreamStop, onE
           {/* Last result feedback */}
           {lastResult && (
             <div className="rounded-md border border-border bg-background/50 px-3 py-2">
-              <span className="font-mono text-base text-muted-foreground">RESULT: </span>
-              <span className="font-mono text-base text-foreground">{lastResult}</span>
+              <span className="font-mono text-sm text-muted-foreground">RESULT: </span>
+              <span className="font-mono text-sm text-foreground">{lastResult}</span>
             </div>
           )}
         </div>
@@ -120,7 +120,7 @@ export function ModeToggle({ isExecuting = false, onStreamRun, onStreamStop, onE
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-foreground/30" />
             <span className="relative inline-flex h-2 w-2 rounded-full bg-foreground/60" />
           </span>
-          <span className="font-mono text-base text-muted-foreground">
+          <span className="font-mono text-sm text-muted-foreground">
             Listening for A2A requests …
           </span>
         </div>

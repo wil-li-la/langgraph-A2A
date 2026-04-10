@@ -63,8 +63,8 @@ export function GripperButtons({ joints, sendCommand, speedScale }: GripperButto
   return (
     <div className="rounded-md border border-border p-2">
       <div className="flex items-center justify-between mb-1">
-        <span className="font-mono text-base text-muted-foreground">Gripper</span>
-        <span className="font-mono text-base font-medium text-foreground">
+        <span className="font-mono text-sm text-muted-foreground">Gripper</span>
+        <span className="font-mono text-sm font-medium text-foreground">
           {current.toFixed(3)} rad ({pct}%)
         </span>
       </div>

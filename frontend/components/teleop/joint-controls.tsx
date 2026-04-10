@@ -55,7 +55,7 @@ export function JointControls({ joints, sendCommand, speedScale }: JointControls
     }
   }, []);
 
-  const btn = "flex-1 aspect-square rounded-md border border-border font-mono text-xl font-medium transition-colors hover:bg-foreground/5 active:bg-foreground/10";
+  const btn = "flex-1 aspect-square rounded-md border border-border font-mono text-lg font-medium transition-colors hover:bg-foreground/5 active:bg-foreground/10";
 
   return (
     <div className="rounded-md border border-border p-2">
@@ -70,10 +70,10 @@ export function JointControls({ joints, sendCommand, speedScale }: JointControls
           return (
             <div key={name}>
               <div className="flex items-center justify-between mb-1">
-                <span className="font-mono text-base text-muted-foreground">
+                <span className="font-mono text-sm text-muted-foreground">
                   {JOINT_LABELS[name] ?? name}
                 </span>
-                <span className="font-mono text-base font-medium text-foreground">
+                <span className="font-mono text-sm font-medium text-foreground">
                   {value.toFixed(3)} rad
                   {limits && (
                     <span className="text-muted-foreground ml-1">

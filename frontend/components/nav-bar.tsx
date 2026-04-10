@@ -27,11 +27,11 @@ export function NavBar() {
             value={robotHost}
             onChange={(e) => setRobotHost(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleConnect()}
-            className="w-44 rounded-md border border-border bg-background px-3 py-1.5 font-mono text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            className="w-44 rounded-md border border-border bg-background px-3 py-1.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           />
           <button
             onClick={isConnected ? disconnect : handleConnect}
-            className={`rounded-md border px-3 py-1.5 font-mono text-base font-medium transition-colors ${
+            className={`rounded-md border px-3 py-1.5 font-mono text-sm font-medium transition-colors ${
               isConnected
                 ? "border-border text-muted-foreground hover:bg-foreground/10"
                 : "border-foreground/30 bg-foreground/10 text-foreground hover:bg-foreground/20"
@@ -40,7 +40,7 @@ export function NavBar() {
             {isConnected ? "Disconnect" : "Connect"}
           </button>
           {isConnected && (
-            <span className="flex items-center gap-1.5 font-mono text-base">
+            <span className="flex items-center gap-1.5 font-mono text-sm">
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-foreground/50" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-foreground" />
@@ -58,7 +58,7 @@ export function NavBar() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`rounded-md px-4 py-1.5 font-mono text-base font-medium transition-colors ${
+                className={`rounded-md px-4 py-1.5 font-mono text-sm font-medium transition-colors ${
                   isActive
                     ? "bg-foreground/15 text-foreground"
                     : "text-muted-foreground hover:bg-foreground/10 hover:text-foreground"

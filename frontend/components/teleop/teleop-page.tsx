@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { useTeleop } from "@/hooks/use-teleop";
+import { useRobotConnection } from "@/contexts/robot-connection";
 import { NavBar } from "@/components/nav-bar";
 import { StatusBar } from "./status-bar";
 import { CameraPanel } from "./camera-panel";
@@ -18,19 +18,10 @@ import { TtsInput } from "./tts-input";
 let chatIdCounter = 0;
 
 export function TeleopPage() {
-  const [robotHost, setRobotHost] = useState("");
   const [speedScale, setSpeedScale] = useState(1.0);
   const [chatEntries, setChatEntries] = useState<ChatEntry[]>([]);
 
-  const { status, cameras, isConnected, sendCommand, connect, disconnect } = useTeleop();
-
-  const handleConnect = () => {
-    if (robotHost.trim()) {
-      const host = robotHost.trim();
-      const url = host.includes("://") ? host : `ws://${host}:8765`;
-      connect(url);
-    }
-  };
+  const { status, cameras, isConnected, sendCommand } = useRobotConnection();
 
   const addChatEntry = useCallback((kind: "speech" | "listen", text: string) => {
     const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -41,30 +32,9 @@ export function TeleopPage() {
     <div className="flex flex-col h-dvh bg-background text-foreground overflow-hidden">
       <NavBar />
 
-      {/* Connection header */}
-      <div className="border-b border-border px-4 py-2 flex items-center gap-3">
-        <div className="flex gap-1.5 flex-1 max-w-sm">
-          <input
-            placeholder="Robot IP or ws://host:port"
-            value={robotHost}
-            onChange={(e) => setRobotHost(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleConnect()}
-            className="flex-1 rounded-md border border-border bg-background px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
-          />
-          <button
-            onClick={isConnected ? disconnect : handleConnect}
-            className={`rounded-md border px-3 py-1 font-mono text-xs transition-colors ${
-              isConnected
-                ? "border-border text-muted-foreground hover:bg-foreground/5"
-                : "border-foreground/20 bg-foreground/10 text-foreground hover:bg-foreground/15"
-            }`}
-          >
-            {isConnected ? "Disconnect" : "Connect"}
-          </button>
-        </div>
-        <div className="ml-auto">
-          <StatusBar status={status} isConnected={isConnected} />
-        </div>
+      {/* Status bar */}
+      <div className="border-b border-border px-4 py-1.5 shrink-0">
+        <StatusBar status={status} isConnected={isConnected} />
       </div>
 
       {/* Main content */}

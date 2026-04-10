@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import type { RobotId, WorkflowNode, WorkflowEdge } from "@/lib/mock-data"
 import { taskData } from "@/lib/mock-data"
-import { fetchWorkflow, fetchSkills, executeWorkflowStream, resumeWorkflowStream, type WorkflowData, type SkillsData, type ExecutionResult } from "@/lib/api"
+import { fetchWorkflow, fetchSkills, executeWorkflowStream, resumeWorkflowStream, resetWorkflowStream, type WorkflowData, type SkillsData, type ExecutionResult } from "@/lib/api"
 
 interface UseWorkflowResult {
   nodes: WorkflowNode[]
@@ -17,8 +17,9 @@ interface UseWorkflowResult {
   executedNodes: string[]
   executionLog: string[]
   progress: number
+  isResetting: boolean
   refetch: () => void
-  resetWorkflow: () => void
+  resetWorkflow: () => Promise<void>
   isPaused: boolean
   pausedNodeId: string | null
   pauseReason: string | null
@@ -50,6 +51,7 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
   const [pausedNodeId, setPausedNodeId] = useState<string | null>(null)
   const [pauseReason, setPauseReason] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
+  const [isResetting, setIsResetting] = useState(false)
 
   const doFetch = useCallback(async () => {
     setIsLoading(true)
@@ -196,15 +198,44 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
     }
   }, [sessionId])
 
-  // Reset all execution state
-  const resetWorkflow = useCallback(() => {
-    setActiveNodeId(null)
-    setExecutedNodes([])
-    setExecutionLog([])
+  // Reset: run return_to_origin on backend, then clear all state
+  const resetWorkflow = useCallback(async () => {
+    setIsResetting(true)
     setIsPaused(false)
     setPausedNodeId(null)
     setPauseReason(null)
-    setSessionId(null)
+    setExecutionLog((prev) => [...prev, "\n↺ Resetting — returning to origin..."])
+
+    try {
+      await resetWorkflowStream({
+        onNodeStart: (nodeId, executed) => {
+          setActiveNodeId(nodeId)
+          setExecutedNodes([...executed])
+        },
+        onNodeEnd: (nodeId, executed) => {
+          setActiveNodeId(null)
+          setExecutedNodes([...executed])
+        },
+        onLog: (text) => {
+          setExecutionLog((prev) => [...prev, text])
+        },
+        onDone: () => {
+          setExecutionLog((prev) => [...prev, "✓ Robot returned to origin"])
+        },
+        onError: (errMsg) => {
+          setExecutionLog((prev) => [...prev, `✗ Reset error: ${errMsg}`])
+        },
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error"
+      setExecutionLog((prev) => [...prev, `✗ Reset failed: ${msg}`])
+    } finally {
+      // Clear all state after reset completes
+      setActiveNodeId(null)
+      setExecutedNodes([])
+      setSessionId(null)
+      setIsResetting(false)
+    }
   }, [])
 
   // Render live nodes only — do not fall back to mock nodes anymore!
@@ -239,6 +270,7 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
     error,
     isLive,
     isExecuting,
+    isResetting,
     activeNodeId,
     executedNodes,
     executionLog,

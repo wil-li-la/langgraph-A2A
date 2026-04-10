@@ -279,6 +279,77 @@ export async function resumeWorkflowStream(
   return finalResult
 }
 
+/**
+ * Reset workflow: return robot to origin and clear all state.
+ */
+export async function resetWorkflowStream(
+  callbacks: StreamCallbacks,
+  signal?: AbortSignal,
+): Promise<ExecutionResult | null> {
+  const res = await fetch(`${API_BASE}/api/workflow/reset`, {
+    method: "POST",
+    signal,
+  })
+
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Reset failed: ${res.status} ${body}`)
+  }
+
+  const reader = res.body?.getReader()
+  if (!reader) throw new Error("No readable stream")
+
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let finalResult: ExecutionResult | null = null
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+
+    const lines = buffer.split("\n\n")
+    buffer = lines.pop() ?? ""
+
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed.startsWith("data: ")) continue
+
+      try {
+        const event: StreamEvent = JSON.parse(trimmed.slice(6))
+
+        switch (event.event) {
+          case "log":
+            if (event.text) callbacks.onLog?.(event.text)
+            break
+          case "node_start":
+            callbacks.onNodeStart?.(event.node_id ?? "", event.executed_nodes ?? [])
+            break
+          case "node_end":
+            callbacks.onNodeEnd?.(
+              event.node_id ?? "",
+              event.executed_nodes ?? [],
+              event.history ?? [],
+            )
+            break
+          case "done":
+            finalResult = event.result ?? null
+            callbacks.onDone?.(finalResult!)
+            break
+          case "error":
+            callbacks.onError?.(event.node_id ?? "Unknown error")
+            break
+        }
+      } catch {
+        // ignore malformed JSON
+      }
+    }
+  }
+
+  return finalResult
+}
+
 function mapNodeType(type: string): WorkflowNode["type"] {
   switch (type) {
     case "start":

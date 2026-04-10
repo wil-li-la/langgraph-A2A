@@ -486,6 +486,141 @@ async def resume_workflow_stream(request: Request) -> StreamingResponse:
         )
 
 
+async def reset_workflow_stream(request: Request) -> StreamingResponse:
+    """POST /api/workflow/reset — Reset workflow: clear paused sessions and return robot to origin.
+
+    Returns an SSE stream showing the return_to_origin node executing.
+    """
+    try:
+        # Clear all paused sessions
+        _paused_sessions.clear()
+
+        # Build a minimal state that just runs return_to_origin
+        reset_state = {
+            "patient_name": "",
+            "medication_name": "",
+            "current_location": "unknown",
+            "task_status": "resetting",
+            "target_detected": False,
+            "identity_verified": False,
+            "identity_check_retries": 0,
+            "mode": "manual",
+            "errors": [],
+            "history": [],
+            "executed_nodes": [],
+            "resume_from": "return_to_origin",
+        }
+
+        session_id = str(uuid.uuid4())
+
+        async def event_generator() -> AsyncGenerator[str, None]:
+            loop = asyncio.get_event_loop()
+            q: asyncio.Queue = asyncio.Queue()
+
+            def _run_stream():
+                thread_id = threading.get_ident()
+
+                class QueueLogHandler(logging.Handler):
+                    def emit(self, record):
+                        if threading.get_ident() == thread_id:
+                            text = f"{record.getMessage()}"
+                            if text.strip():
+                                try:
+                                    if not loop.is_closed():
+                                        loop.call_soon_threadsafe(q.put_nowait, {"type": "stdout", "text": text.rstrip("\n")})
+                                except RuntimeError:
+                                    pass
+
+                queue_handler = QueueLogHandler()
+                queue_handler.setLevel(logging.INFO)
+                logging.getLogger().addHandler(queue_handler)
+                logging.getLogger("app.healthcare.medication_delivery").addHandler(queue_handler)
+                logging.getLogger("cure").addHandler(queue_handler)
+
+                try:
+                    for event_type, node_id, data in _agent.stream_execute(
+                        "", "", mode="manual", session_id=session_id, resume_state=reset_state,
+                    ):
+                        try:
+                            if not loop.is_closed():
+                                loop.call_soon_threadsafe(q.put_nowait, {
+                                    "type": "langgraph",
+                                    "event_type": event_type,
+                                    "node_id": node_id,
+                                    "data": data
+                                })
+                        except RuntimeError:
+                            break
+                except Exception as e:
+                    logger.error(f"Error in reset stream thread: {e}", exc_info=True)
+                    try:
+                        if not loop.is_closed():
+                            loop.call_soon_threadsafe(q.put_nowait, {"type": "error", "error": str(e)})
+                    except RuntimeError:
+                        pass
+                finally:
+                    logging.getLogger().removeHandler(queue_handler)
+                    logging.getLogger("app.healthcare.medication_delivery").removeHandler(queue_handler)
+                    logging.getLogger("cure").removeHandler(queue_handler)
+                    try:
+                        if not loop.is_closed():
+                            loop.call_soon_threadsafe(q.put_nowait, None)
+                    except RuntimeError:
+                        pass
+
+            thread = threading.Thread(target=_run_stream)
+            thread.start()
+
+            while True:
+                item = await q.get()
+                if item is None:
+                    break
+
+                if item["type"] == "stdout":
+                    payload = json.dumps({"event": "log", "text": item["text"]}, ensure_ascii=False)
+                    yield f"data: {payload}\n\n"
+                elif item["type"] == "langgraph":
+                    event_type = item["event_type"]
+                    ev_node_id = item["node_id"]
+                    data = item["data"]
+
+                    if event_type == "done":
+                        result = {
+                            "task_status": data.get("task_status"),
+                            "executed_nodes": data.get("executed_nodes", []),
+                            "history": data.get("history", []),
+                        }
+                        payload = json.dumps({"event": "done", "result": result, "session_id": session_id}, ensure_ascii=False)
+                    else:
+                        payload = json.dumps({
+                            "event": event_type,
+                            "node_id": ev_node_id,
+                            "session_id": session_id,
+                            **{k: v for k, v in data.items() if k != "session_id"},
+                        }, ensure_ascii=False)
+                    yield f"data: {payload}\n\n"
+                elif item["type"] == "error":
+                    payload = json.dumps({"event": "error", "error": item["error"]}, ensure_ascii=False)
+                    yield f"data: {payload}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    except Exception as e:
+        logger.error(f"Reset workflow failed: {e}")
+        return JSONResponse(
+            {"error": str(e)},
+            status_code=500,
+        )
+
+
 async def get_skills(request: Request) -> JSONResponse:
     """Return available skills dynamically loaded from cure package and required task skills."""
     try:
@@ -510,6 +645,7 @@ workflow_routes = [
     Route("/api/workflow/execute", execute_workflow, methods=["POST", "OPTIONS"]),
     Route("/api/workflow/execute/stream", execute_workflow_stream, methods=["POST", "OPTIONS"]),
     Route("/api/workflow/resume", resume_workflow_stream, methods=["POST", "OPTIONS"]),
+    Route("/api/workflow/reset", reset_workflow_stream, methods=["POST", "OPTIONS"]),
     Route("/api/skills", get_skills, methods=["GET"]),
     Route("/api/stream/d405/rgb", stream_d405_rgb, methods=["GET"]),
     Route("/api/stream/d405/depth", stream_d405_depth, methods=["GET"]),

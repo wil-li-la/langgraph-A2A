@@ -17,6 +17,7 @@ export function RobotDashboard() {
     isLoading,
     isLive,
     isExecuting,
+    isResetting,
     activeNodeId,
     executionLog,
     progress,
@@ -52,11 +53,11 @@ export function RobotDashboard() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={resetWorkflow}
-                  disabled={isExecuting}
+                  disabled={isExecuting || isResetting}
                   className="rounded border border-border px-2 py-0.5 font-mono text-sm text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:opacity-30"
-                  title="Reset graph state"
+                  title="Reset workflow and return robot to origin"
                 >
-                  ↺ RESET
+                  {isResetting ? "RESETTING..." : "↺ RESET"}
                 </button>
 
                 {isLoading ? (

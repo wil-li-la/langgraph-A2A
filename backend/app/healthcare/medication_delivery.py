@@ -44,6 +44,7 @@ class AgentState(TypedDict):
     errors: Annotated[List[str], operator.add]
     history: Annotated[List[str], operator.add]
     executed_nodes: Annotated[List[str], operator.add]
+    resume_from: str  # node ID to resume from (empty string = normal start)
 
 
 # --- Helper ---
@@ -344,6 +345,12 @@ def return_to_origin_node(state: AgentState) -> dict:
     }
 
 
+def resume_router_node(state: AgentState) -> dict:
+    """Entry point router — passes through state unchanged."""
+    _log_node_entry("resume_router", state)
+    return {"executed_nodes": ["resume_router"]}
+
+
 # --- Conditional Edge Functions ---
 
 def _route_or_error(state: AgentState, ok_status: str, next_node: str) -> str:
@@ -382,6 +389,20 @@ def should_continue_after_identity(state: AgentState) -> str:
     return "handle_error"
 
 
+_VALID_RESUME_NODES = {
+    "confirm_task", "nav_to_pharmacy", "pickup_med",
+    "nav_to_patient", "delivery", "check_patient_identity",
+    "return_to_origin",
+}
+
+
+def route_from_resume_router(state: AgentState) -> str:
+    target = state.get("resume_from", "")
+    if target and target in _VALID_RESUME_NODES:
+        return target
+    return "confirm_task"
+
+
 # --- Workflow Construction ---
 
 def create_medication_delivery_workflow() -> StateGraph:
@@ -389,6 +410,7 @@ def create_medication_delivery_workflow() -> StateGraph:
     workflow = StateGraph(AgentState)
 
     # Nodes
+    workflow.add_node("resume_router", resume_router_node)
     workflow.add_node("confirm_task", confirm_task_node)
     workflow.add_node("nav_to_pharmacy", navigate_to_pharmacy_node)
     workflow.add_node("pickup_med", pickup_medication_node)
@@ -399,9 +421,18 @@ def create_medication_delivery_workflow() -> StateGraph:
     workflow.add_node("return_to_origin", return_to_origin_node)
 
     # Entry
-    workflow.set_entry_point("confirm_task")
+    workflow.set_entry_point("resume_router")
 
     # Edges
+    workflow.add_conditional_edges("resume_router", route_from_resume_router, {
+        "confirm_task": "confirm_task",
+        "nav_to_pharmacy": "nav_to_pharmacy",
+        "pickup_med": "pickup_med",
+        "nav_to_patient": "nav_to_patient",
+        "delivery": "delivery",
+        "check_patient_identity": "check_patient_identity",
+        "return_to_origin": "return_to_origin",
+    })
     workflow.add_conditional_edges("confirm_task", should_continue_after_confirm,
                                    {"nav_to_pharmacy": "nav_to_pharmacy", "handle_error": "handle_error"})
     workflow.add_edge("nav_to_pharmacy", "pickup_med")
@@ -443,6 +474,7 @@ class MedicationDeliveryAgent:
             "errors": [],
             "history": [],
             "executed_nodes": [],
+            "resume_from": "",
         }
 
     def _print_summary(self, final_state: dict, execution_time: float):

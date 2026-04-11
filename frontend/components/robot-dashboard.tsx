@@ -41,9 +41,9 @@ export function RobotDashboard() {
   return (
     <div className="flex h-dvh flex-col bg-background overflow-hidden">
       <NavBar />
-      <div className="flex flex-1 min-h-0 gap-3 p-3">
+      <div className="flex-1 grid grid-cols-[minmax(0,1fr)_300px] min-h-0 gap-3 p-3">
         {/* Left column: Graph + Video */}
-        <div className="flex flex-1 flex-col gap-3 min-h-0">
+        <div className="flex flex-col gap-3 min-h-0 overflow-hidden">
           {/* Task LangGraph */}
           <div className="flex-1 rounded-md border border-border bg-card p-3 flex flex-col min-h-0">
             <div className="mb-2 flex items-center justify-between shrink-0">
@@ -113,7 +113,7 @@ export function RobotDashboard() {
         </div>
 
         {/* Right column: Skills + Mode + Log */}
-        <div className="w-[300px] flex-shrink-0 flex flex-col gap-3 min-h-0 overflow-y-auto">
+        <div className="flex flex-col gap-3 min-h-0 overflow-y-auto">
           {/* Required Skills */}
           <div className="rounded-md border border-border bg-card p-3 shrink-0">
             <SkillsPanel skillsData={skillsData} />

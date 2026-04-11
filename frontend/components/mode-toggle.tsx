@@ -40,7 +40,7 @@ export function ModeToggle({ isExecuting = false, onStreamRun, onStreamStop, onE
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <h2 className="font-mono text-lg font-medium tracking-wide text-foreground">
-          OPERATION MODE
+          MODE
         </h2>
 
         {/* Toggle pill */}
@@ -121,7 +121,7 @@ export function ModeToggle({ isExecuting = false, onStreamRun, onStreamStop, onE
             <span className="relative inline-flex h-2 w-2 rounded-full bg-foreground/60" />
           </span>
           <span className="font-mono text-sm text-muted-foreground">
-            Listening for A2A requests …
+            Listening for requests …
           </span>
         </div>
       )}

@@ -24,40 +24,40 @@ const SVG_PAD = 16
 const PHASES = [
   { label: "PREPARE", nodes: ["__start__", "confirm_task"] },
   { label: "TRANSPORT", nodes: ["nav_to_pharmacy", "pickup_med"] },
-  { label: "DELIVER", nodes: ["nav_to_patient", "delivery", "check_patient_identity"] },
+  { label: "DELIVER", nodes: ["nav_to_patient", "delivery", "check_identity", "hand_medicine"] },
   { label: "RETURN", nodes: ["return_to_origin", "__end__"] },
 ] as const
 
 function getNodeColor(status: WorkflowNode["status"], type: WorkflowNode["type"]) {
   if (type === "error") {
     return {
-      bg: status === "error" ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.03)",
-      border: status === "error" ? "rgba(239,68,68,0.6)" : "rgba(255,255,255,0.15)",
-      text: status === "error" ? "rgba(239,68,68,0.9)" : "rgba(255,255,255,0.7)",
-      glow: "rgba(239,68,68,0.4)",
+      bg: status === "error" ? "rgba(239,68,68,0.25)" : "rgba(255,255,255,0.06)",
+      border: status === "error" ? "rgba(239,68,68,0.7)" : "rgba(255,255,255,0.25)",
+      text: status === "error" ? "rgba(239,68,68,0.95)" : "rgba(255,255,255,0.8)",
+      glow: "rgba(239,68,68,0.5)",
     }
   }
   switch (status) {
     case "completed":
       return {
-        bg: "rgba(52,211,153,0.08)",
-        border: "rgba(52,211,153,0.40)",
-        text: "rgba(255,255,255,0.9)",
-        glow: "rgba(52,211,153,0.3)",
+        bg: "rgba(52,211,153,0.15)",
+        border: "rgba(52,211,153,0.55)",
+        text: "rgba(255,255,255,0.95)",
+        glow: "rgba(52,211,153,0.4)",
       }
     case "active":
       return {
-        bg: "rgba(56,189,248,0.12)",
-        border: "rgba(56,189,248,0.70)",
+        bg: "rgba(56,189,248,0.20)",
+        border: "rgba(56,189,248,0.80)",
         text: "rgba(255,255,255,1)",
-        glow: "rgba(56,189,248,0.5)",
+        glow: "rgba(56,189,248,0.6)",
       }
     case "pending":
     default:
       return {
-        bg: "rgba(255,255,255,0.02)",
-        border: "rgba(255,255,255,0.10)",
-        text: "rgba(255,255,255,0.4)",
+        bg: "rgba(255,255,255,0.06)",
+        border: "rgba(255,255,255,0.25)",
+        text: "rgba(255,255,255,0.7)",
         glow: "transparent",
       }
   }
@@ -163,8 +163,8 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
           width={phase.w}
           height={phase.h}
           rx={8}
-          fill="rgba(255,255,255,0.015)"
-          stroke="rgba(255,255,255,0.06)"
+          fill="rgba(255,255,255,0.04)"
+          stroke="rgba(255,255,255,0.15)"
           strokeWidth={1}
         />
         {/* Phase label */}
@@ -176,7 +176,7 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
           fontFamily="monospace"
           fontWeight="600"
           letterSpacing="1"
-          fill="rgba(255,255,255,0.25)"
+          fill="rgba(255,255,255,0.45)"
         >
           {phase.label}
         </text>
@@ -191,7 +191,7 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
       const toPos = layout.positions.get(edge.to)
       if (!fromPos || !toPos) return null
 
-      // Skip self-loops (check_patient_identity retry) — we'll render a special icon instead
+      // Skip self-loops (check_identity retry) — we'll render a special icon instead
       if (edge.from === edge.to) return null
 
       const isActive = activeEdges.has(i)
@@ -201,7 +201,7 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
         ? "rgba(56,189,248,0.5)"
         : isCompleted
           ? "rgba(52,211,153,0.3)"
-          : "rgba(255,255,255,0.08)"
+          : "rgba(255,255,255,0.20)"
 
       const strokeWidth = isActive ? 2 : isCompleted ? 1.5 : 1
       const dashArray = isActive ? undefined : "4 3"
@@ -368,7 +368,7 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
             >
               <div style={{
                 background: "rgba(15,15,20,0.95)",
-                border: "1px solid rgba(255,255,255,0.15)",
+                border: "1px solid rgba(255,255,255,0.30)",
                 borderRadius: "5px",
                 padding: "3px 6px",
                 fontFamily: "monospace",

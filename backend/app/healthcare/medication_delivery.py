@@ -246,17 +246,15 @@ def deliver_to_patient_node(state: AgentState) -> dict:
     }
 
 
-def check_patient_identity_node(state: AgentState) -> dict:
-    """Verify patient identity and medication awareness via voice with retries."""
-    _log_node_entry("check_patient_identity", state)
+def check_identity_node(state: AgentState) -> dict:
+    """Verify patient identity via voice with retries."""
+    _log_node_entry("check_identity", state)
     patient_name = state['patient_name']
-    medication_name = state['medication_name']
     retries = state.get('identity_check_retries', 0)
-    node = "check_patient_identity"
 
-    _section("🔍", f"確認病患身份與用藥認知: {patient_name} (第 {retries + 1} 次嘗試)")
+    _section("🔍", f"確認病患身份: {patient_name} (第 {retries + 1} 次嘗試)")
 
-    # 1. Voice confirmation — identity
+    # Voice confirmation — identity
     q1 = f"您好，我是給藥機器人，請問你叫什麼名字"
     _log("🔊", f"語音播放: 「{q1}」")
     _speak_and_wait(q1)
@@ -266,24 +264,40 @@ def check_patient_identity_node(state: AgentState) -> dict:
     rr.log("workflow/identity_check/voice_q1",
            rr.TextDocument(f"Q: {q1}\nA: {resp1}"))
 
-    # Updated identity check — match full name in response
+    # Match full name in response
     if not resp1 or patient_name not in resp1:
         _log("✗", "病患否認身份或回覆不符")
         return {
             "task_status": "identity_failed",
             "identity_check_retries": retries + 1,
             "history": [f"✗ 身份確認失敗 (第 {retries + 1} 次): 病患回覆「{resp1}」"],
+            "executed_nodes": ["check_identity"],
         }
 
-    # 2. Announce medication time
+    _log("✓", f"身份確認通過 — 病患: {patient_name}")
+    return {
+        "identity_verified": True,
+        "task_status": "identity_verified",
+        "history": ["✓ 語音身份確認通過"],
+        "executed_nodes": ["check_identity"],
+    }
+
+
+def hand_medicine_node(state: AgentState) -> dict:
+    """Announce medication and hand over to patient."""
+    _log_node_entry("hand_medicine", state)
+    patient_name = state['patient_name']
+    medication_name = state['medication_name']
+
+    _section("🤝", f"遞交藥物: {medication_name} → {patient_name}")
+
+    # Announce medication time
     now = datetime.now()
     q2 = f"現在是{now.hour}點{now.minute}分，病患{patient_name}需要服用{medication_name}"
     _log("🔊", f"語音播放: 「{q2}」")
     _speak_and_wait(q2)
 
-    # 3. All checks passed — hand off medication
-    _log("✓", f"身份與用藥認知確認完成 — 病患: {patient_name}, 藥物: {medication_name}")
-
+    # Hand off medication
     msg_handoff = "給藥確認完成，謝謝您，請拿取藥物。"
     _log("🔊", f"語音播放: 「{msg_handoff}」")
     _speak_and_wait(msg_handoff)
@@ -297,14 +311,12 @@ def check_patient_identity_node(state: AgentState) -> dict:
     _speak_and_wait(confirmation)
 
     return {
-        "identity_verified": True,
         "task_status": "delivered",
         "history": [
-            "✓ 語音身份確認通過",
             "✓ 用藥認知確認通過",
             f"✓ 藥物已遞交給 {patient_name}",
         ],
-        "executed_nodes": [node],
+        "executed_nodes": ["hand_medicine"],
     }
 
 
@@ -376,26 +388,24 @@ def should_continue_after_nav_to_patient(state: AgentState) -> str:
 
 
 def should_continue_after_delivery(state: AgentState) -> str:
-    return _route_or_error(state, "ready_for_identity_check", "check_patient_identity")
+    return _route_or_error(state, "ready_for_identity_check", "check_identity")
 
 
 def should_continue_after_identity(state: AgentState) -> str:
     status = state.get('task_status')
-    if status == 'delivered':
-        return "return_to_origin"
-    
-    # Retry logic
-    if state.get('identity_check_retries', 0) < 3:
-        _log("🔁", f"身份確認失敗，準備進行第 {state.get('identity_check_retries', 0) + 1} 次重試...")
-        return "check_patient_identity"
-    
+    if status == 'identity_verified':
+        return "hand_medicine"
     return "handle_error"
+
+
+def should_continue_after_handover(state: AgentState) -> str:
+    return _route_or_error(state, "delivered", "return_to_origin")
 
 
 _VALID_RESUME_NODES = {
     "confirm_task", "nav_to_pharmacy", "pickup_med",
-    "nav_to_patient", "delivery", "check_patient_identity",
-    "return_to_origin",
+    "nav_to_patient", "delivery", "check_identity",
+    "hand_medicine", "return_to_origin",
 }
 
 
@@ -412,7 +422,8 @@ _NODE_ROUTERS = {
     "pickup_med": should_continue_after_pickup,
     "nav_to_patient": should_continue_after_nav_to_patient,
     "delivery": should_continue_after_delivery,
-    "check_patient_identity": should_continue_after_identity,
+    "check_identity": should_continue_after_identity,
+    "hand_medicine": should_continue_after_handover,
 }
 
 
@@ -437,7 +448,8 @@ def create_medication_delivery_workflow() -> StateGraph:
     workflow.add_node("pickup_med", pickup_medication_node)
     workflow.add_node("nav_to_patient", navigate_to_patient_node)
     workflow.add_node("delivery", deliver_to_patient_node)
-    workflow.add_node("check_patient_identity", check_patient_identity_node)
+    workflow.add_node("check_identity", check_identity_node)
+    workflow.add_node("hand_medicine", hand_medicine_node)
     workflow.add_node("handle_error", error_handler_node)
     workflow.add_node("return_to_origin", return_to_origin_node)
 
@@ -451,7 +463,8 @@ def create_medication_delivery_workflow() -> StateGraph:
         "pickup_med": "pickup_med",
         "nav_to_patient": "nav_to_patient",
         "delivery": "delivery",
-        "check_patient_identity": "check_patient_identity",
+        "check_identity": "check_identity",
+        "hand_medicine": "hand_medicine",
         "return_to_origin": "return_to_origin",
     })
     workflow.add_conditional_edges("confirm_task", should_continue_after_confirm,
@@ -462,11 +475,12 @@ def create_medication_delivery_workflow() -> StateGraph:
     workflow.add_conditional_edges("nav_to_patient", should_continue_after_nav_to_patient,
                                    {"delivery": "delivery", "handle_error": "handle_error"})
     workflow.add_conditional_edges("delivery", should_continue_after_delivery,
-                                   {"check_patient_identity": "check_patient_identity", "handle_error": "handle_error"})
-    workflow.add_conditional_edges("check_patient_identity", should_continue_after_identity,
-                                   {"return_to_origin": "return_to_origin", 
-                                    "check_patient_identity": "check_patient_identity",
+                                   {"check_identity": "check_identity", "handle_error": "handle_error"})
+    workflow.add_conditional_edges("check_identity", should_continue_after_identity,
+                                   {"hand_medicine": "hand_medicine",
                                     "handle_error": "handle_error"})
+    workflow.add_conditional_edges("hand_medicine", should_continue_after_handover,
+                                   {"return_to_origin": "return_to_origin", "handle_error": "handle_error"})
     workflow.add_edge("handle_error", "return_to_origin")
     workflow.add_edge("return_to_origin", END)
 

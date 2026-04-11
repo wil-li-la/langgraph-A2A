@@ -60,7 +60,8 @@ def _introspect_graph() -> dict:
         "nav_to_pharmacy": "navigate_to_pharmacy_node",
         "pickup_med": "pickup_medication_node",
         "delivery": "deliver_to_patient_node",
-        "check_patient_identity": "check_patient_identity_node",
+        "check_identity": "check_identity_node",
+        "hand_medicine": "hand_medicine_node",
         "handle_error": "error_handler_node",
     }
 

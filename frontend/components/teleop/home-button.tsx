@@ -10,7 +10,7 @@ interface HomeButtonProps {
 export function HomeButton({ isHomed, sendCommand }: HomeButtonProps) {
   return (
     <button
-      className="w-full h-[66px] rounded-md border border-border font-mono text-sm font-medium transition-colors hover:bg-foreground/5 active:bg-foreground/10"
+      className="w-full h-[66px] rounded-md border border-blue-400/25 bg-blue-400/5 font-mono text-sm font-medium transition-colors hover:bg-blue-400/15 active:bg-blue-400/25"
       onClick={() => sendCommand({ type: "home" })}
     >
       {isHomed ? "RE-HOME ROBOT" : "HOME ROBOT"}

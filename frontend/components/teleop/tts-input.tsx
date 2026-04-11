@@ -29,7 +29,7 @@ export function TtsInput({ sendCommand, onSend }: TtsInputProps) {
         className="flex-1 h-12 rounded-md border border-border bg-background px-3 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
       />
       <button
-        className="h-12 rounded-md border border-border px-5 font-mono text-sm font-medium transition-colors hover:bg-foreground/10 disabled:opacity-30"
+        className="h-12 rounded-md border border-blue-400/25 bg-blue-400/5 px-5 font-mono text-sm font-medium transition-colors hover:bg-blue-400/15 active:bg-blue-400/25 disabled:opacity-30"
         onClick={send}
         disabled={!text.trim()}
       >

@@ -24,22 +24,13 @@ const REPEAT_MS = 150;
 export function JointControls({ joints, sendCommand, speedScale }: JointControlsProps) {
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const scaleRef = useRef(speedScale);
-  const jointsRef = useRef(joints);
   useEffect(() => { scaleRef.current = speedScale; }, [speedScale]);
-  useEffect(() => { jointsRef.current = joints; }, [joints]);
 
   const startRepeat = useCallback(
     (name: JointName, direction: 1 | -1) => {
       if (timerRef.current) clearInterval(timerRef.current);
       const send = () => {
         const inc = (JOINT_INCREMENTS[name] ?? 0.05) * direction * scaleRef.current;
-        const current = jointsRef.current[name] ?? 0;
-        const target = current + inc;
-
-        // Clamp to joint limits if defined
-        const limits = JOINT_LIMITS[name];
-        if (limits && (target < limits[0] || target > limits[1])) return;
-
         sendCommand({ type: "increment_joint", name, increment: inc });
       };
       send();
@@ -55,7 +46,7 @@ export function JointControls({ joints, sendCommand, speedScale }: JointControls
     }
   }, []);
 
-  const btn = "flex-1 aspect-square rounded-md border border-border font-mono text-lg font-medium transition-colors hover:bg-foreground/5 active:bg-foreground/10";
+  const btn = "flex-1 h-12 rounded-md border border-blue-400/25 bg-blue-400/5 font-mono text-lg font-medium transition-colors hover:bg-blue-400/15 active:bg-blue-400/25";
 
   return (
     <div className="rounded-md border border-border p-2">
@@ -73,12 +64,12 @@ export function JointControls({ joints, sendCommand, speedScale }: JointControls
                 <span className="font-mono text-sm text-muted-foreground">
                   {JOINT_LABELS[name] ?? name}
                 </span>
-                <span className="font-mono text-sm font-medium text-foreground">
-                  {value.toFixed(3)} rad
+                <span className="font-mono text-sm font-medium text-foreground text-right">
+                  <div>{value.toFixed(3)} rad</div>
                   {limits && (
-                    <span className="text-muted-foreground ml-1">
+                    <div className="text-muted-foreground">
                       [{limits[0]}, {limits[1]}]
-                    </span>
+                    </div>
                   )}
                 </span>
               </div>

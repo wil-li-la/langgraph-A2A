@@ -35,8 +35,8 @@ export function HeadControls({ sendCommand, speedScale }: HeadControlsProps) {
     }
   }, []);
 
-  const btn = "aspect-square rounded-md border border-border font-mono text-sm font-medium transition-colors hover:bg-foreground/5 active:bg-foreground/10";
-  const preset = "flex-1 h-[66px] rounded-md border border-border font-mono text-sm font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground text-center";
+  const btn = "aspect-square rounded-md border border-blue-400/25 bg-blue-400/5 font-mono text-sm font-medium transition-colors hover:bg-blue-400/15 active:bg-blue-400/25";
+  const preset = "flex-1 h-[66px] rounded-md border border-blue-400/25 bg-blue-400/5 font-mono text-sm font-medium text-muted-foreground transition-colors hover:bg-blue-400/15 hover:text-foreground text-center";
 
   return (
     <div className="rounded-md border border-border p-2">

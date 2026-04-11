@@ -38,7 +38,7 @@ export const JOINT_INCREMENTS: Partial<Record<JointName, number>> = {
   joint_wrist_yaw: 0.2,
   joint_wrist_pitch: 0.2,
   joint_wrist_roll: 0.2,
-  joint_gripper_finger_left: 0.075, // radians, matching official stretch_web_teleop
+  joint_gripper_finger_left: 3, // radians, matching official stretch_web_teleop
   translate_mobile_base: 0.1,
   rotate_mobile_base: 0.2,
 };

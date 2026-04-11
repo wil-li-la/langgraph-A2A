@@ -147,13 +147,9 @@ export function useTeleop() {
     }
   }, []);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      currentUrlRef.current = null;
-      cleanup();
-    };
-  }, [cleanup]);
+  // Note: no cleanup on unmount — this hook lives in the root provider
+  // and should persist across page navigation. The WebSocket connection
+  // is only closed explicitly via disconnect().
 
   return { status, cameras, isConnected, sendCommand, connect, disconnect };
 }

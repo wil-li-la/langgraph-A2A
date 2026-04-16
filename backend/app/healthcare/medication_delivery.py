@@ -15,7 +15,7 @@ from cure.config import update_config, Config
 from cure.skills.listen import listen_skill
 from cure.skills.speak import speak_skill, wait_for_speech_completion
 from cure.skills.handover import handover_skill
-from cure.skills.navigate import navigate_avoidance, navigate_skill
+from cure.skills.navigate import navigate_skill
 
 from app.healthcare.mock_data import MockDatabase, MockRobotActions
 
@@ -658,6 +658,11 @@ class MedicationDeliveryAgent:
 
 if __name__ == "__main__":
     import sys
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
 
     dry_run = "--dry-run" in sys.argv
     argv_args = [a for a in sys.argv[1:] if a != "--dry-run"]

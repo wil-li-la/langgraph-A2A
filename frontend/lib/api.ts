@@ -118,11 +118,12 @@ export async function executeWorkflowStream(
   instruction: string,
   callbacks: StreamCallbacks,
   signal?: AbortSignal,
+  options?: { start_from?: string },
 ): Promise<ExecutionResult> {
   const res = await fetch(`${API_BASE}/api/workflow/execute/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ instruction }),
+    body: JSON.stringify({ instruction, ...(options?.start_from ? { start_from: options.start_from } : {}) }),
     signal,
   })
 
@@ -299,6 +300,21 @@ export async function submitWorkflowInput(sessionId: string, text: string): Prom
   if (!res.ok) {
     const body = await res.text()
     throw new Error(`Submit input failed: ${res.status} ${body}`)
+  }
+}
+
+/**
+ * Request a graceful stop. The backend pauses after the current node completes.
+ */
+export async function stopWorkflow(sessionId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/workflow/stop`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId }),
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Stop failed: ${res.status} ${body}`)
   }
 }
 

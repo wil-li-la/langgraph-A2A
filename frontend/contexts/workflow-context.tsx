@@ -61,7 +61,6 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null)
   const [executedNodes, setExecutedNodes] = useState<string[]>([])
   const [executionLog, setExecutionLog] = useState<string[]>([])
-  const [abortController, setAbortController] = useState<AbortController | null>(null)
   const [isPaused, setIsPaused] = useState(false)
   const [pausedNodeId, setPausedNodeId] = useState<string | null>(null)
   const [pauseReason, setPauseReason] = useState<string | null>(null)
@@ -106,7 +105,6 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
     // Create new abort controller for this run
     const controller = new AbortController()
-    setAbortController(controller)
 
     try {
       const result = await executeWorkflowStream(instruction, {
@@ -114,7 +112,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           setActiveNodeId(nodeId)
           setExecutedNodes([...executed])
         },
-        onNodeEnd: (nodeId, executed) => {
+        onNodeEnd: (_nodeId, executed) => {
           setActiveNodeId(null)
           setExecutedNodes([...executed])
         },
@@ -156,7 +154,6 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsExecuting(false)
       setActiveNodeId(null)
-      setAbortController(null)
       setAwaitingInput(false)
       setInputPrompt("")
     }
@@ -172,7 +169,6 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     setActiveNodeId(null)
 
     const controller = new AbortController()
-    setAbortController(controller)
 
     try {
       const result = await resumeWorkflowStream(sessionId, nodeId, {
@@ -180,7 +176,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           setActiveNodeId(nid)
           setExecutedNodes([...executed])
         },
-        onNodeEnd: (nid, executed) => {
+        onNodeEnd: (_nid, executed) => {
           setActiveNodeId(null)
           setExecutedNodes([...executed])
         },
@@ -220,7 +216,6 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsExecuting(false)
       setActiveNodeId(null)
-      setAbortController(null)
       setAwaitingInput(false)
       setInputPrompt("")
     }
@@ -240,7 +235,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           setActiveNodeId(nodeId)
           setExecutedNodes([...executed])
         },
-        onNodeEnd: (nodeId, executed) => {
+        onNodeEnd: (_nodeId, executed) => {
           setActiveNodeId(null)
           setExecutedNodes([...executed])
         },
@@ -329,7 +324,6 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     setExecutionLog([])
 
     const controller = new AbortController()
-    setAbortController(controller)
 
     try {
       const result = await executeWorkflowStream(instruction, {
@@ -337,7 +331,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           setActiveNodeId(nid)
           setExecutedNodes([...executed])
         },
-        onNodeEnd: (nid, executed) => {
+        onNodeEnd: (_nid, executed) => {
           setActiveNodeId(null)
           setExecutedNodes([...executed])
         },
@@ -379,7 +373,6 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsExecuting(false)
       setActiveNodeId(null)
-      setAbortController(null)
       setAwaitingInput(false)
       setInputPrompt("")
     }

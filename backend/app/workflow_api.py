@@ -26,6 +26,7 @@ from app.healthcare.medication_delivery import (
     create_medication_delivery_workflow,
     _paused_sessions,
     _stop_requests,
+    _VALID_RESUME_NODES,
 )
 from app.healthcare.mock_data import MockNLU
 from app.skills.browser_input import (
@@ -205,6 +206,11 @@ async def execute_workflow_stream(request: Request) -> StreamingResponse:
         medication_name = parsed["medication_name"]
         session_id = str(uuid.uuid4())
         start_from = body.get("start_from", "")
+        if start_from and start_from not in _VALID_RESUME_NODES:
+            return JSONResponse(
+                {"error": f"Invalid start_from node: {start_from}"},
+                status_code=400,
+            )
 
         async def event_generator() -> AsyncGenerator[str, None]:
             """Run stream_execute in a background thread, intercept stdout, and yield SSE lines."""
@@ -248,16 +254,13 @@ async def execute_workflow_stream(request: Request) -> StreamingResponse:
                 logging.getLogger("cure").addHandler(queue_handler)
 
                 try:
-                    stream_kwargs = {
-                        "mode": "manual",
-                        "session_id": session_id,
-                    }
-                    if start_from:
-                        stream_kwargs["resume_state"] = _agent._build_initial_state(
-                            patient_name, medication_name, mode="manual"
-                        )
-                        stream_kwargs["resume_state"]["resume_from"] = start_from
-                    for event_type, node_id, data in _agent.stream_execute(patient_name, medication_name, **stream_kwargs):
+                    for event_type, node_id, data in _agent.stream_execute(
+                        patient_name,
+                        medication_name,
+                        mode="manual",
+                        session_id=session_id,
+                        start_from=start_from,
+                    ):
                         try:
                             if not loop.is_closed():
                                 loop.call_soon_threadsafe(q.put_nowait, {

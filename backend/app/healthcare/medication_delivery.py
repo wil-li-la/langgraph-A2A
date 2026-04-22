@@ -586,8 +586,15 @@ class MedicationDeliveryAgent:
     def stream_execute(
         self, patient_name: str, medication_name: str, *, mode: str = "auto",
         session_id: str = "", resume_state: dict | None = None,
+        start_from: str = "",
     ) -> Generator[Tuple[str, str, dict], None, None]:
         """Execute workflow with per-node streaming.
+
+        `start_from` (optional): when non-empty and `resume_state` is None,
+        seeds the initial state's `resume_from` field so the workflow begins
+        at the named node instead of confirm_task. Must be a valid node id
+        (see _VALID_RESUME_NODES) — unknown values silently fall back to
+        confirm_task via route_from_resume_router.
 
         Yields (event_type, node_id, data) tuples:
           - ("node_start", node_id, {executed_nodes so far})
@@ -606,6 +613,8 @@ class MedicationDeliveryAgent:
             initial_state = resume_state
         else:
             initial_state = self._build_initial_state(patient_name, medication_name, mode=mode)
+            if start_from:
+                initial_state["resume_from"] = start_from
         initial_state["session_id"] = session_id
 
         executed_nodes: list[str] = list(initial_state.get("executed_nodes", []))

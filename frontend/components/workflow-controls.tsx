@@ -40,11 +40,8 @@ export function WorkflowControls({
   const handleStop = async () => {
     if (workflowState !== "running") return
     setStopPending(true)
-    try {
-      await onStop()
-    } finally {
-      // stopPending clears when workflowState transitions to paused/idle
-    }
+    // stopPending clears when workflowState transitions to paused/idle (useEffect below)
+    await onStop()
   }
 
   const handleResume = async () => {

@@ -13,7 +13,7 @@ export function VideoPanel() {
         </h2>
       </div>
 
-      <div className="grid flex-1 grid-cols-3 gap-2 min-h-0">
+      <div className="grid flex-1 grid-cols-1 gap-2 min-h-0 sm:grid-cols-3">
         {/* Head view (realsense d435if) */}
         <div className="relative flex flex-col overflow-hidden rounded-md border border-border min-h-0">
           <div className="flex-1 min-h-0">

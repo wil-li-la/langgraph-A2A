@@ -19,6 +19,7 @@ const PHASE_PAD = 10 // padding inside phase box
 const PHASE_GAP = 14 // gap between phase boxes
 const PHASE_LABEL_H = 16 // height for phase label
 const SVG_PAD = 16
+const TOOLTIP_CLEARANCE = 52 // room below bottom nodes for tooltips (44px tooltip + 4px gap + buffer)
 
 // Define phases: each phase has a label and ordered node IDs
 const PHASES = [
@@ -127,7 +128,8 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
     }
 
     const totalWidth = curX - PHASE_GAP + SVG_PAD
-    const maxY = errorPos ? errorPos.y + NODE_H / 2 + SVG_PAD : nodesY + NODE_H / 2 + SVG_PAD + PHASE_PAD
+    const bottomY = errorPos ? errorPos.y + NODE_H / 2 : nodesY + NODE_H / 2
+    const maxY = bottomY + TOOLTIP_CLEARANCE
 
     return { positions, phases: phaseBounds, width: totalWidth, height: maxY, errorPos }
   }, [nodes])
@@ -404,25 +406,27 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
   }
 
   return (
-    <div ref={scrollContainerRef} className="flex h-full items-center justify-center overflow-auto">
-      <svg
-        width={layout.width}
-        height={layout.height}
-        viewBox={`0 0 ${layout.width} ${layout.height}`}
-      >
-        <defs>
-          <filter id="glow-filter" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="6" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
-        {renderPhases()}
-        {renderEdges()}
-        {renderNodes()}
-      </svg>
+    <div ref={scrollContainerRef} className="h-full overflow-auto">
+      <div className="flex h-full w-fit min-w-full items-center justify-center">
+        <svg
+          width={layout.width}
+          height={layout.height}
+          viewBox={`0 0 ${layout.width} ${layout.height}`}
+        >
+          <defs>
+            <filter id="glow-filter" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="6" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+          {renderPhases()}
+          {renderEdges()}
+          {renderNodes()}
+        </svg>
+      </div>
     </div>
   )
 }

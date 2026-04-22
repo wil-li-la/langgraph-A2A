@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import type { RobotId, WorkflowNode, WorkflowEdge } from "@/lib/mock-data"
 import { taskData } from "@/lib/mock-data"
-import { fetchWorkflow, fetchSkills, executeWorkflowStream, resumeWorkflowStream, resetWorkflowStream, type WorkflowData, type SkillsData, type ExecutionResult } from "@/lib/api"
+import { fetchWorkflow, fetchSkills, executeWorkflowStream, resumeWorkflowStream, resetWorkflowStream, submitWorkflowInput, type WorkflowData, type SkillsData, type ExecutionResult } from "@/lib/api"
 
 interface UseWorkflowResult {
   nodes: WorkflowNode[]
@@ -27,6 +27,10 @@ interface UseWorkflowResult {
   startStreamExecution: (instruction: string) => Promise<ExecutionResult | null>
   stopStreamExecution: () => void
   resumeFromNode: (nodeId: string) => Promise<ExecutionResult | null>
+  appendLog: (text: string) => void
+  awaitingInput: boolean
+  inputPrompt: string
+  submitInput: (text: string) => Promise<void>
 }
 
 /**
@@ -52,6 +56,8 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
   const [pauseReason, setPauseReason] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [isResetting, setIsResetting] = useState(false)
+  const [awaitingInput, setAwaitingInput] = useState(false)
+  const [inputPrompt, setInputPrompt] = useState("")
 
   const doFetch = useCallback(async () => {
     setIsLoading(true)
@@ -117,6 +123,12 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
           setSessionId(sid)
           setExecutionLog((prev) => [...prev, `\n⚠ Workflow paused at ${nodeId}: ${reason}`])
         },
+        onAwaitInput: (sid, prompt) => {
+          setSessionId(sid)
+          setInputPrompt(prompt)
+          setAwaitingInput(true)
+          setExecutionLog((prev) => [...prev, `\n🎤 Waiting for input: 「${prompt}」`])
+        },
       }, controller.signal)
       return result
     } catch (err) {
@@ -131,6 +143,8 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
       setIsExecuting(false)
       setActiveNodeId(null)
       setAbortController(null)
+      setAwaitingInput(false)
+      setInputPrompt("")
     }
   }, [])
   
@@ -181,6 +195,12 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
           setSessionId(sid)
           setExecutionLog((prev) => [...prev, `\n⚠ Workflow paused at ${nid}: ${reason}`])
         },
+        onAwaitInput: (sid, prompt) => {
+          setSessionId(sid)
+          setInputPrompt(prompt)
+          setAwaitingInput(true)
+          setExecutionLog((prev) => [...prev, `\n🎤 Waiting for input: 「${prompt}」`])
+        },
       }, controller.signal)
       return result
     } catch (err) {
@@ -195,6 +215,8 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
       setIsExecuting(false)
       setActiveNodeId(null)
       setAbortController(null)
+      setAwaitingInput(false)
+      setInputPrompt("")
     }
   }, [sessionId])
 
@@ -262,6 +284,23 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
     ? Math.round((executedNodes.filter((id) => id !== "__start__" && id !== "__end__").length / totalExecutableNodes) * 100)
     : 0
 
+  const appendLog = useCallback((text: string) => {
+    setExecutionLog((prev) => [...prev, text])
+  }, [])
+
+  const submitInput = useCallback(async (text: string) => {
+    if (!sessionId) return
+    setAwaitingInput(false)
+    setInputPrompt("")
+    setExecutionLog((prev) => [...prev, `🗣️ Input: 「${text}」`])
+    try {
+      await submitWorkflowInput(sessionId, text)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error"
+      setExecutionLog((prev) => [...prev, `✗ Submit input failed: ${msg}`])
+    }
+  }, [sessionId])
+
   return {
     nodes,
     edges,
@@ -284,5 +323,9 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
     startStreamExecution,
     stopStreamExecution,
     resumeFromNode,
+    appendLog,
+    awaitingInput,
+    inputPrompt,
+    submitInput,
   }
 }

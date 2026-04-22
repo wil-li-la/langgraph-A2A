@@ -1117,7 +1117,7 @@ Update the `<WorkflowGraph>` component to pass the new props:
 Add the pause guide in the left column of the bottom row (before or after the Operation Mode panel). Find the `{/* Operation Mode panel */}` section and add the pause guide right after it:
 
 ```tsx
-            {/* Operation Mode panel */}
+            {/* Mode panel */}
             <div className="rounded-md border border-border bg-card p-4">
               <ModeToggle
                 isExecuting={isExecuting}

@@ -27,6 +27,11 @@ from app.healthcare.medication_delivery import (
     _paused_sessions,
 )
 from app.healthcare.mock_data import MockNLU
+from app.skills.browser_input import (
+    deliver_input,
+    register_request_handler,
+    unregister_request_handler,
+)
 import cure.skills
 
 logger = logging.getLogger(__name__)
@@ -204,6 +209,19 @@ async def execute_workflow_stream(request: Request) -> StreamingResponse:
             loop = asyncio.get_event_loop()
             q = asyncio.Queue()
 
+            # Bridge browser_input_skill → this SSE queue so the skill can
+            # emit an await_input event from its worker thread.
+            def _on_input_requested(prompt: str):
+                try:
+                    if not loop.is_closed():
+                        loop.call_soon_threadsafe(q.put_nowait, {
+                            "type": "await_input",
+                            "prompt": prompt,
+                        })
+                except RuntimeError:
+                    pass
+            register_request_handler(session_id, _on_input_requested)
+
             def _run_stream():
                 thread_id = threading.get_ident()
 
@@ -221,7 +239,7 @@ async def execute_workflow_stream(request: Request) -> StreamingResponse:
 
                 queue_handler = QueueLogHandler()
                 queue_handler.setLevel(logging.INFO)
-                
+
                 # Add to root to catch propagated logs, and explicitly to few known loggers just in case
                 logging.getLogger().addHandler(queue_handler)
                 logging.getLogger("app.healthcare.medication_delivery").addHandler(queue_handler)
@@ -250,6 +268,7 @@ async def execute_workflow_stream(request: Request) -> StreamingResponse:
                     logging.getLogger().removeHandler(queue_handler)
                     logging.getLogger("app.healthcare.medication_delivery").removeHandler(queue_handler)
                     logging.getLogger("cure").removeHandler(queue_handler)
+                    unregister_request_handler(session_id)
                     try:
                         if not loop.is_closed():
                             loop.call_soon_threadsafe(q.put_nowait, None)
@@ -263,16 +282,24 @@ async def execute_workflow_stream(request: Request) -> StreamingResponse:
                 item = await q.get()
                 if item is None:
                     break
-                
+
                 if item["type"] == "stdout":
                     payload = json.dumps({"event": "log", "text": item["text"]}, ensure_ascii=False)
                     yield f"data: {payload}\n\n"
-                    
+
+                elif item["type"] == "await_input":
+                    payload = json.dumps({
+                        "event": "await_input",
+                        "session_id": session_id,
+                        "prompt": item["prompt"],
+                    }, ensure_ascii=False)
+                    yield f"data: {payload}\n\n"
+
                 elif item["type"] == "langgraph":
                     event_type = item["event_type"]
                     node_id = item["node_id"]
                     data = item["data"]
-                    
+
                     if event_type == "done":
                         result = {
                             "task_status": data.get("task_status"),
@@ -360,6 +387,18 @@ async def resume_workflow_stream(request: Request) -> StreamingResponse:
             loop = asyncio.get_event_loop()
             q = asyncio.Queue()
 
+            # Bridge browser_input_skill → this SSE queue (same as execute_workflow_stream)
+            def _on_input_requested(prompt: str):
+                try:
+                    if not loop.is_closed():
+                        loop.call_soon_threadsafe(q.put_nowait, {
+                            "type": "await_input",
+                            "prompt": prompt,
+                        })
+                except RuntimeError:
+                    pass
+            register_request_handler(session_id, _on_input_requested)
+
             def _run_stream():
                 thread_id = threading.get_ident()
 
@@ -410,6 +449,7 @@ async def resume_workflow_stream(request: Request) -> StreamingResponse:
                     logging.getLogger().removeHandler(queue_handler)
                     logging.getLogger("app.healthcare.medication_delivery").removeHandler(queue_handler)
                     logging.getLogger("cure").removeHandler(queue_handler)
+                    unregister_request_handler(session_id)
                     try:
                         if not loop.is_closed():
                             loop.call_soon_threadsafe(q.put_nowait, None)
@@ -426,6 +466,14 @@ async def resume_workflow_stream(request: Request) -> StreamingResponse:
 
                 if item["type"] == "stdout":
                     payload = json.dumps({"event": "log", "text": item["text"]}, ensure_ascii=False)
+                    yield f"data: {payload}\n\n"
+
+                elif item["type"] == "await_input":
+                    payload = json.dumps({
+                        "event": "await_input",
+                        "session_id": session_id,
+                        "prompt": item["prompt"],
+                    }, ensure_ascii=False)
                     yield f"data: {payload}\n\n"
 
                 elif item["type"] == "langgraph":
@@ -485,6 +533,32 @@ async def resume_workflow_stream(request: Request) -> StreamingResponse:
             {"error": str(e)},
             status_code=500,
         )
+
+
+async def submit_workflow_input(request: Request) -> JSONResponse:
+    """POST /api/workflow/input — Deliver browser-captured text to a waiting skill.
+
+    Body: { "session_id": "...", "text": "..." }
+    """
+    try:
+        body = await request.json()
+        session_id = body.get("session_id", "")
+        text = body.get("text", "")
+
+        if not session_id:
+            return JSONResponse({"error": "Missing 'session_id'"}, status_code=400)
+
+        delivered = deliver_input(session_id, text)
+        if not delivered:
+            return JSONResponse(
+                {"error": f"No pending input request for session_id={session_id}"},
+                status_code=404,
+            )
+        return JSONResponse({"status": "ok"})
+
+    except Exception as e:
+        logger.error(f"Submit input failed: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 async def reset_workflow_stream(request: Request) -> StreamingResponse:
@@ -646,6 +720,7 @@ workflow_routes = [
     Route("/api/workflow/execute", execute_workflow, methods=["POST", "OPTIONS"]),
     Route("/api/workflow/execute/stream", execute_workflow_stream, methods=["POST", "OPTIONS"]),
     Route("/api/workflow/resume", resume_workflow_stream, methods=["POST", "OPTIONS"]),
+    Route("/api/workflow/input", submit_workflow_input, methods=["POST", "OPTIONS"]),
     Route("/api/workflow/reset", reset_workflow_stream, methods=["POST", "OPTIONS"]),
     Route("/api/skills", get_skills, methods=["GET"]),
     Route("/api/stream/d405/rgb", stream_d405_rgb, methods=["GET"]),

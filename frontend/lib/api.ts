@@ -35,7 +35,7 @@ export interface ExecutionResult {
 
 /** SSE event types emitted by the streaming endpoint. */
 export interface StreamEvent {
-  event: "node_start" | "node_end" | "done" | "error" | "log" | "paused"
+  event: "node_start" | "node_end" | "done" | "error" | "log" | "paused" | "await_input"
   node_id?: string
   executed_nodes?: string[]
   history?: string[]
@@ -44,6 +44,7 @@ export interface StreamEvent {
   text?: string
   session_id?: string
   reason?: string
+  prompt?: string
 }
 
 export interface StreamCallbacks {
@@ -53,6 +54,7 @@ export interface StreamCallbacks {
   onError?: (error: string) => void
   onLog?: (text: string) => void
   onPaused?: (nodeId: string, reason: string, sessionId: string) => void
+  onAwaitInput?: (sessionId: string, prompt: string) => void
 }
 
 /**
@@ -180,6 +182,9 @@ export async function executeWorkflowStream(
               event.session_id ?? "",
             )
             break
+          case "await_input":
+            callbacks.onAwaitInput?.(event.session_id ?? "", event.prompt ?? "")
+            break
           case "error":
             callbacks.onError?.(event.node_id ?? "Unknown error")
             break
@@ -266,6 +271,9 @@ export async function resumeWorkflowStream(
               event.session_id ?? "",
             )
             break
+          case "await_input":
+            callbacks.onAwaitInput?.(event.session_id ?? "", event.prompt ?? "")
+            break
           case "error":
             callbacks.onError?.(event.node_id ?? "Unknown error")
             break
@@ -277,6 +285,21 @@ export async function resumeWorkflowStream(
   }
 
   return finalResult
+}
+
+/**
+ * Deliver browser-captured text to a workflow waiting on browser_input_skill.
+ */
+export async function submitWorkflowInput(sessionId: string, text: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/workflow/input`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, text }),
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Submit input failed: ${res.status} ${body}`)
+  }
 }
 
 /**

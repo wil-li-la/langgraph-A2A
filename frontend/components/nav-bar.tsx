@@ -14,20 +14,20 @@ export function NavBar() {
   const { robotHost, setRobotHost, isConnected, handleConnect, disconnect } = useRobotConnection();
 
   return (
-    <header className="border-b border-border bg-background px-4 py-2 shrink-0">
-      <div className="flex items-center gap-3">
-        <h1 className="font-mono text-lg font-medium tracking-tight text-foreground whitespace-nowrap">
+    <header className="border-b border-border bg-background px-3 py-2 shrink-0 sm:px-4">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <h1 className="font-mono text-base font-medium tracking-tight text-foreground whitespace-nowrap sm:text-lg">
           Robot Task Dashboard
         </h1>
 
         {/* Robot connection */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <input
             placeholder="Robot IP"
             value={robotHost}
             onChange={(e) => setRobotHost(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleConnect()}
-            className="w-44 rounded-md border border-border bg-background px-3 py-1.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            className="w-36 rounded-md border border-border bg-background px-3 py-1.5 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring sm:w-44"
           />
           <button
             onClick={isConnected ? disconnect : handleConnect}

@@ -17,6 +17,7 @@ from cure.skills.speak import speak_skill, wait_for_speech_completion
 from cure.skills.handover import handover_skill
 from cure.skills.navigate import navigate_skill
 
+from app.skills.browser_input import browser_input_skill
 from app.healthcare.mock_data import MockDatabase, MockRobotActions
 
 update_config(Config.from_yaml("./cure/config.yaml"))
@@ -44,6 +45,7 @@ class AgentState(TypedDict):
     identity_verified: bool
     identity_check_retries: int
     mode: str  # "manual" (dashboard) or "auto" (A2A from external agent)
+    session_id: str  # SSE session id; used by browser_input_skill in manual mode
     errors: Annotated[List[str], operator.add]
     history: Annotated[List[str], operator.add]
     executed_nodes: Annotated[List[str], operator.add]
@@ -255,11 +257,18 @@ def check_identity_node(state: AgentState) -> dict:
     _section("🔍", f"確認病患身份: {patient_name} (第 {retries + 1} 次嘗試)")
 
     # Voice confirmation — identity
-    q1 = f"您好，我是給藥機器人，請問你叫什麼名字"
+    q1 = "您好，我是給藥機器人，請問你叫什麼名字"
     _log("🔊", f"語音播放: 「{q1}」")
     _speak_and_wait(q1)
 
-    resp1 = listen_skill() or ""
+    # Manual mode (dashboard) uses browser-side voice/text input; auto mode
+    # (A2A) uses the on-robot ASR via cure.skills.listen.
+    mode = state.get("mode", "auto")
+    session_id = state.get("session_id", "")
+    if mode == "manual" and session_id:
+        resp1 = browser_input_skill(session_id, q1)
+    else:
+        resp1 = listen_skill() or ""
     _log("🗣️", f"病患回覆: 「{resp1}」")
     rr.log("workflow/identity_check/voice_q1",
            rr.TextDocument(f"Q: {q1}\nA: {resp1}"))
@@ -506,6 +515,7 @@ class MedicationDeliveryAgent:
             "identity_verified": False,
             "identity_check_retries": 0,
             "mode": mode,
+            "session_id": "",
             "errors": [],
             "history": [],
             "executed_nodes": [],
@@ -591,6 +601,7 @@ class MedicationDeliveryAgent:
             initial_state = resume_state
         else:
             initial_state = self._build_initial_state(patient_name, medication_name, mode=mode)
+        initial_state["session_id"] = session_id
 
         executed_nodes: list[str] = list(initial_state.get("executed_nodes", []))
         final_state = dict(initial_state)

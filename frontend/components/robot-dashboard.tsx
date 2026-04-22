@@ -37,6 +37,7 @@ export function RobotDashboard() {
   } = useWorkflow("stretch3")
 
   const [instruction, setInstruction] = useState("")
+  const [highlightInstructionTick, setHighlightInstructionTick] = useState(0)
 
   const logContainerRef = useRef<HTMLDivElement>(null)
 
@@ -124,6 +125,7 @@ export function RobotDashboard() {
                     }
                     if (!instruction.trim()) {
                       appendLog("⚠ Enter an instruction first, then click a node to start from there")
+                      setHighlightInstructionTick((t) => t + 1)
                       return
                     }
                     startFromNode(nodeId, instruction.trim())
@@ -153,6 +155,7 @@ export function RobotDashboard() {
               onResume={resumeFromNode}
               onInstructionChange={setInstruction}
               instruction={instruction}
+              highlightInstructionTick={highlightInstructionTick}
             />
           </div>
 

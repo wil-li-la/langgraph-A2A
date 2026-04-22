@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { ExecutionResult } from "@/lib/api"
 import type { WorkflowState } from "@/hooks/use-workflow"
 
@@ -16,6 +16,8 @@ interface WorkflowControlsProps {
   onResume: (nodeId: string) => Promise<ExecutionResult | null>
   onInstructionChange: (text: string) => void
   instruction: string
+  /** Incrementing counter — when it changes, the instruction input focuses and briefly pulses. */
+  highlightInstructionTick?: number
 }
 
 export function WorkflowControls({
@@ -28,9 +30,22 @@ export function WorkflowControls({
   onResume,
   onInstructionChange,
   instruction,
+  highlightInstructionTick = 0,
 }: WorkflowControlsProps) {
   const [mode, setMode] = useState<Mode>("manual")
   const [stopPending, setStopPending] = useState(false)
+  const [pulsing, setPulsing] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // When parent bumps the tick (e.g. user clicked a node with empty instruction),
+  // focus the input and briefly ring it in amber for 1.5s.
+  useEffect(() => {
+    if (!highlightInstructionTick) return
+    inputRef.current?.focus()
+    setPulsing(true)
+    const t = setTimeout(() => setPulsing(false), 1500)
+    return () => clearTimeout(t)
+  }, [highlightInstructionTick])
 
   const handleStart = async () => {
     if (!instruction.trim() || workflowState !== "idle") return
@@ -90,12 +105,17 @@ export function WorkflowControls({
         <div className="flex flex-col gap-2">
           <div className="flex gap-2">
             <input
+              ref={inputRef}
               type="text"
               value={instruction}
               onChange={(e) => onInstructionChange(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleStart()}
               placeholder="請將阿斯匹靈送給張小明 …"
-              className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-foreground/20"
+              className={`min-w-0 flex-1 rounded-md border bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-foreground/20 transition-all ${
+                pulsing
+                  ? "border-amber-400 ring-2 ring-amber-400/50 animate-pulse"
+                  : "border-border"
+              }`}
             />
             <button
               onClick={handleStart}

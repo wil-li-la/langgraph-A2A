@@ -9,9 +9,14 @@ const NAV_ITEMS = [
   { href: "/teleop", label: "Teleop" },
 ] as const;
 
-export function NavBar() {
+interface NavBarProps {
+  workflowState?: "idle" | "running" | "paused"
+}
+
+export function NavBar({ workflowState = "idle" }: NavBarProps) {
   const pathname = usePathname();
   const { robotHost, setRobotHost, isConnected, handleConnect, disconnect } = useRobotConnection();
+  const teleopLocked = workflowState === "running"
 
   return (
     <header className="border-b border-border bg-background px-3 py-2 shrink-0 sm:px-4">
@@ -54,6 +59,20 @@ export function NavBar() {
         <nav className="ml-auto flex gap-1">
           {NAV_ITEMS.map((item) => {
             const isActive = pathname === item.href;
+            const locked = item.href === "/teleop" && teleopLocked
+
+            if (locked) {
+              return (
+                <span
+                  key={item.href}
+                  title="Stop workflow to access teleop"
+                  className="cursor-not-allowed rounded-md px-4 py-1.5 font-mono text-sm font-medium text-muted-foreground/40"
+                >
+                  {item.label} 🔒
+                </span>
+              )
+            }
+
             return (
               <Link
                 key={item.href}

@@ -1,10 +1,10 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { SkillsPanel } from "@/components/skills-panel"
 import { WorkflowGraph } from "@/components/workflow-graph"
 import { VideoPanel } from "@/components/video-panel"
-import { ModeToggle } from "@/components/mode-toggle"
+import { WorkflowControls } from "@/components/workflow-controls"
 import { PauseGuide } from "@/components/pause-guide"
 import { useWorkflow } from "@/hooks/use-workflow"
 import { NavBar } from "@/components/nav-bar"
@@ -27,12 +27,16 @@ export function RobotDashboard() {
     resumeFromNode,
     resetWorkflow,
     startStreamExecution,
-    stopStreamExecution,
     appendLog,
     awaitingInput,
     inputPrompt,
     submitInput,
+    workflowState,
+    stop,
+    startFromNode,
   } = useWorkflow("stretch3")
+
+  const [instruction, setInstruction] = useState("")
 
   const logContainerRef = useRef<HTMLDivElement>(null)
 
@@ -44,7 +48,7 @@ export function RobotDashboard() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-background lg:h-dvh lg:overflow-hidden">
-      <NavBar />
+      <NavBar workflowState={workflowState} />
       <div className="flex flex-1 min-h-0 flex-col gap-2 p-2 lg:flex-row lg:gap-3 lg:p-3">
         {/* Left column: Graph + Video */}
         <div className="flex flex-1 flex-col gap-3 min-h-0 min-w-0">
@@ -109,8 +113,14 @@ export function RobotDashboard() {
                 nodes={nodes}
                 edges={edges}
                 activeNodeId={activeNodeId}
-                isPaused={isPaused}
-                onNodeClick={resumeFromNode}
+                workflowState={workflowState}
+                onNodeClick={(nodeId) => {
+                  if (workflowState === "paused") {
+                    resumeFromNode(nodeId)
+                  } else if (workflowState === "idle" && instruction.trim()) {
+                    startFromNode(nodeId, instruction.trim())
+                  }
+                }}
               />
             </div>
           </div>
@@ -123,12 +133,18 @@ export function RobotDashboard() {
 
         {/* Right column: Mode + Log */}
         <div className="flex-shrink-0 flex flex-col gap-3 min-h-0 w-full lg:w-[420px] xl:w-[500px] 2xl:w-[560px] lg:overflow-y-auto">
-          {/* Mode */}
+          {/* Workflow controls */}
           <div className="rounded-md border border-border bg-card p-3 shrink-0">
-            <ModeToggle
-              isExecuting={isExecuting}
-              onStreamRun={startStreamExecution}
-              onStreamStop={stopStreamExecution}
+            <WorkflowControls
+              workflowState={workflowState}
+              pausedNodeId={pausedNodeId}
+              pauseReason={pauseReason}
+              activeNodeId={activeNodeId}
+              onStart={startStreamExecution}
+              onStop={stop}
+              onResume={resumeFromNode}
+              onInstructionChange={setInstruction}
+              instruction={instruction}
             />
           </div>
 

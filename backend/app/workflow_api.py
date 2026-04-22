@@ -21,6 +21,7 @@ from app.camera_api import (
     stream_d435if_mix
 )
 
+from app.common.sse_log_bridge import bridge_logs_to_queue
 from app.healthcare.medication_delivery import (
     MedicationDeliveryAgent,
     create_medication_delivery_workflow,
@@ -232,62 +233,39 @@ async def execute_workflow_stream(request: Request) -> StreamingResponse:
 
             def _run_stream():
                 thread_id = threading.get_ident()
-
-                class QueueLogHandler(logging.Handler):
-                    def emit(self, record):
-                        if threading.get_ident() == thread_id:
-                            # A simple text format for the UI log
-                            text = f"{record.getMessage()}"
-                            if text.strip():
-                                try:
-                                    if not loop.is_closed():
-                                        loop.call_soon_threadsafe(q.put_nowait, {"type": "stdout", "text": text.rstrip("\n")})
-                                except RuntimeError:
-                                    pass
-
-                queue_handler = QueueLogHandler()
-                queue_handler.setLevel(logging.INFO)
-
-                # Add to root to catch propagated logs, and explicitly to few known loggers just in case
-                logging.getLogger().addHandler(queue_handler)
-                logging.getLogger("app.healthcare.medication_delivery").addHandler(queue_handler)
-                logging.getLogger("cure").addHandler(queue_handler)
-
-                try:
-                    for event_type, node_id, data in _agent.stream_execute(
-                        patient_name,
-                        medication_name,
-                        mode="manual",
-                        session_id=session_id,
-                        start_from=start_from,
-                    ):
+                with bridge_logs_to_queue(q, loop, thread_id):
+                    try:
+                        for event_type, node_id, data in _agent.stream_execute(
+                            patient_name,
+                            medication_name,
+                            mode="manual",
+                            session_id=session_id,
+                            start_from=start_from,
+                        ):
+                            try:
+                                if not loop.is_closed():
+                                    loop.call_soon_threadsafe(q.put_nowait, {
+                                        "type": "langgraph",
+                                        "event_type": event_type,
+                                        "node_id": node_id,
+                                        "data": data
+                                    })
+                            except RuntimeError:
+                                break  # Loop closed, no point continuing to generate events for UI
+                    except Exception as e:
+                        logger.error(f"Error in stream thread: {e}", exc_info=True)
                         try:
                             if not loop.is_closed():
-                                loop.call_soon_threadsafe(q.put_nowait, {
-                                    "type": "langgraph", 
-                                    "event_type": event_type, 
-                                    "node_id": node_id, 
-                                    "data": data
-                                })
+                                loop.call_soon_threadsafe(q.put_nowait, {"type": "error", "error": str(e)})
                         except RuntimeError:
-                            break  # Loop closed, no point continuing to generate events for UI
-                except Exception as e:
-                    logger.error(f"Error in stream thread: {e}", exc_info=True)
-                    try:
-                        if not loop.is_closed():
-                            loop.call_soon_threadsafe(q.put_nowait, {"type": "error", "error": str(e)})
-                    except RuntimeError:
-                        pass
-                finally:
-                    logging.getLogger().removeHandler(queue_handler)
-                    logging.getLogger("app.healthcare.medication_delivery").removeHandler(queue_handler)
-                    logging.getLogger("cure").removeHandler(queue_handler)
-                    unregister_request_handler(session_id)
-                    try:
-                        if not loop.is_closed():
-                            loop.call_soon_threadsafe(q.put_nowait, None)
-                    except RuntimeError:
-                        pass
+                            pass
+                    finally:
+                        unregister_request_handler(session_id)
+                        try:
+                            if not loop.is_closed():
+                                loop.call_soon_threadsafe(q.put_nowait, None)
+                        except RuntimeError:
+                            pass
 
             thread = threading.Thread(target=_run_stream)
             thread.start()
@@ -297,8 +275,8 @@ async def execute_workflow_stream(request: Request) -> StreamingResponse:
                 if item is None:
                     break
 
-                if item["type"] == "stdout":
-                    payload = json.dumps({"event": "log", "text": item["text"]}, ensure_ascii=False)
+                if item["type"] == "log":
+                    payload = json.dumps({"event": "log", "text": item["text"], "level": item["level"]}, ensure_ascii=False)
                     yield f"data: {payload}\n\n"
 
                 elif item["type"] == "await_input":
@@ -345,7 +323,7 @@ async def execute_workflow_stream(request: Request) -> StreamingResponse:
                             **filtered_data,
                         }, ensure_ascii=False)
                     yield f"data: {payload}\n\n"
-                    
+
                 elif item["type"] == "error":
                     payload = json.dumps({"event": "error", "error": item["error"]}, ensure_ascii=False)
                     yield f"data: {payload}\n\n"
@@ -415,60 +393,39 @@ async def resume_workflow_stream(request: Request) -> StreamingResponse:
 
             def _run_stream():
                 thread_id = threading.get_ident()
-
-                class QueueLogHandler(logging.Handler):
-                    def emit(self, record):
-                        if threading.get_ident() == thread_id:
-                            text = f"{record.getMessage()}"
-                            if text.strip():
-                                try:
-                                    if not loop.is_closed():
-                                        loop.call_soon_threadsafe(q.put_nowait, {"type": "stdout", "text": text.rstrip("\n")})
-                                except RuntimeError:
-                                    pass
-
-                queue_handler = QueueLogHandler()
-                queue_handler.setLevel(logging.INFO)
-
-                logging.getLogger().addHandler(queue_handler)
-                logging.getLogger("app.healthcare.medication_delivery").addHandler(queue_handler)
-                logging.getLogger("cure").addHandler(queue_handler)
-
-                try:
-                    for event_type, ev_node_id, data in _agent.stream_execute(
-                        resume_state["patient_name"],
-                        resume_state["medication_name"],
-                        mode="manual",
-                        resume_state=resume_state,
-                        session_id=session_id,
-                    ):
+                with bridge_logs_to_queue(q, loop, thread_id):
+                    try:
+                        for event_type, ev_node_id, data in _agent.stream_execute(
+                            resume_state["patient_name"],
+                            resume_state["medication_name"],
+                            mode="manual",
+                            resume_state=resume_state,
+                            session_id=session_id,
+                        ):
+                            try:
+                                if not loop.is_closed():
+                                    loop.call_soon_threadsafe(q.put_nowait, {
+                                        "type": "langgraph",
+                                        "event_type": event_type,
+                                        "node_id": ev_node_id,
+                                        "data": data,
+                                    })
+                            except RuntimeError:
+                                break
+                    except Exception as e:
+                        logger.error(f"Error in resume stream thread: {e}", exc_info=True)
                         try:
                             if not loop.is_closed():
-                                loop.call_soon_threadsafe(q.put_nowait, {
-                                    "type": "langgraph",
-                                    "event_type": event_type,
-                                    "node_id": ev_node_id,
-                                    "data": data,
-                                })
+                                loop.call_soon_threadsafe(q.put_nowait, {"type": "error", "error": str(e)})
                         except RuntimeError:
-                            break
-                except Exception as e:
-                    logger.error(f"Error in resume stream thread: {e}", exc_info=True)
-                    try:
-                        if not loop.is_closed():
-                            loop.call_soon_threadsafe(q.put_nowait, {"type": "error", "error": str(e)})
-                    except RuntimeError:
-                        pass
-                finally:
-                    logging.getLogger().removeHandler(queue_handler)
-                    logging.getLogger("app.healthcare.medication_delivery").removeHandler(queue_handler)
-                    logging.getLogger("cure").removeHandler(queue_handler)
-                    unregister_request_handler(session_id)
-                    try:
-                        if not loop.is_closed():
-                            loop.call_soon_threadsafe(q.put_nowait, None)
-                    except RuntimeError:
-                        pass
+                            pass
+                    finally:
+                        unregister_request_handler(session_id)
+                        try:
+                            if not loop.is_closed():
+                                loop.call_soon_threadsafe(q.put_nowait, None)
+                        except RuntimeError:
+                            pass
 
             thread = threading.Thread(target=_run_stream)
             thread.start()
@@ -478,8 +435,8 @@ async def resume_workflow_stream(request: Request) -> StreamingResponse:
                 if item is None:
                     break
 
-                if item["type"] == "stdout":
-                    payload = json.dumps({"event": "log", "text": item["text"]}, ensure_ascii=False)
+                if item["type"] == "log":
+                    payload = json.dumps({"event": "log", "text": item["text"], "level": item["level"]}, ensure_ascii=False)
                     yield f"data: {payload}\n\n"
 
                 elif item["type"] == "await_input":
@@ -629,54 +586,34 @@ async def reset_workflow_stream(request: Request) -> StreamingResponse:
 
             def _run_stream():
                 thread_id = threading.get_ident()
-
-                class QueueLogHandler(logging.Handler):
-                    def emit(self, record):
-                        if threading.get_ident() == thread_id:
-                            text = f"{record.getMessage()}"
-                            if text.strip():
-                                try:
-                                    if not loop.is_closed():
-                                        loop.call_soon_threadsafe(q.put_nowait, {"type": "stdout", "text": text.rstrip("\n")})
-                                except RuntimeError:
-                                    pass
-
-                queue_handler = QueueLogHandler()
-                queue_handler.setLevel(logging.INFO)
-                logging.getLogger().addHandler(queue_handler)
-                logging.getLogger("app.healthcare.medication_delivery").addHandler(queue_handler)
-                logging.getLogger("cure").addHandler(queue_handler)
-
-                try:
-                    for event_type, node_id, data in _agent.stream_execute(
-                        "", "", mode="manual", session_id=session_id, resume_state=reset_state,
-                    ):
+                with bridge_logs_to_queue(q, loop, thread_id):
+                    try:
+                        for event_type, node_id, data in _agent.stream_execute(
+                            "", "", mode="manual", session_id=session_id, resume_state=reset_state,
+                        ):
+                            try:
+                                if not loop.is_closed():
+                                    loop.call_soon_threadsafe(q.put_nowait, {
+                                        "type": "langgraph",
+                                        "event_type": event_type,
+                                        "node_id": node_id,
+                                        "data": data
+                                    })
+                            except RuntimeError:
+                                break
+                    except Exception as e:
+                        logger.error(f"Error in reset stream thread: {e}", exc_info=True)
                         try:
                             if not loop.is_closed():
-                                loop.call_soon_threadsafe(q.put_nowait, {
-                                    "type": "langgraph",
-                                    "event_type": event_type,
-                                    "node_id": node_id,
-                                    "data": data
-                                })
+                                loop.call_soon_threadsafe(q.put_nowait, {"type": "error", "error": str(e)})
                         except RuntimeError:
-                            break
-                except Exception as e:
-                    logger.error(f"Error in reset stream thread: {e}", exc_info=True)
-                    try:
-                        if not loop.is_closed():
-                            loop.call_soon_threadsafe(q.put_nowait, {"type": "error", "error": str(e)})
-                    except RuntimeError:
-                        pass
-                finally:
-                    logging.getLogger().removeHandler(queue_handler)
-                    logging.getLogger("app.healthcare.medication_delivery").removeHandler(queue_handler)
-                    logging.getLogger("cure").removeHandler(queue_handler)
-                    try:
-                        if not loop.is_closed():
-                            loop.call_soon_threadsafe(q.put_nowait, None)
-                    except RuntimeError:
-                        pass
+                            pass
+                    finally:
+                        try:
+                            if not loop.is_closed():
+                                loop.call_soon_threadsafe(q.put_nowait, None)
+                        except RuntimeError:
+                            pass
 
             thread = threading.Thread(target=_run_stream)
             thread.start()
@@ -686,8 +623,8 @@ async def reset_workflow_stream(request: Request) -> StreamingResponse:
                 if item is None:
                     break
 
-                if item["type"] == "stdout":
-                    payload = json.dumps({"event": "log", "text": item["text"]}, ensure_ascii=False)
+                if item["type"] == "log":
+                    payload = json.dumps({"event": "log", "text": item["text"], "level": item["level"]}, ensure_ascii=False)
                     yield f"data: {payload}\n\n"
                 elif item["type"] == "langgraph":
                     event_type = item["event_type"]

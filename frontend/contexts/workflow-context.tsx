@@ -17,6 +17,11 @@ import {
 
 export type WorkflowState = "idle" | "running" | "paused"
 
+export interface LogEntry {
+  text: string
+  level: "info" | "warning" | "error"
+}
+
 interface WorkflowContextValue {
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]
@@ -27,7 +32,7 @@ interface WorkflowContextValue {
   isExecuting: boolean
   activeNodeId: string | null
   executedNodes: string[]
-  executionLog: string[]
+  executionLog: LogEntry[]
   progress: number
   isResetting: boolean
   refetch: () => void
@@ -38,7 +43,7 @@ interface WorkflowContextValue {
   sessionId: string | null
   startStreamExecution: (instruction: string) => Promise<ExecutionResult | null>
   resumeFromNode: (nodeId: string) => Promise<ExecutionResult | null>
-  appendLog: (text: string) => void
+  appendLog: (text: string, level?: "info" | "warning" | "error") => void
   awaitingInput: boolean
   inputPrompt: string
   submitInput: (text: string) => Promise<void>
@@ -60,7 +65,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   const [isExecuting, setIsExecuting] = useState(false)
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null)
   const [executedNodes, setExecutedNodes] = useState<string[]>([])
-  const [executionLog, setExecutionLog] = useState<string[]>([])
+  const [executionLog, setExecutionLog] = useState<LogEntry[]>([])
   const [isPaused, setIsPaused] = useState(false)
   const [pausedNodeId, setPausedNodeId] = useState<string | null>(null)
   const [pauseReason, setPauseReason] = useState<string | null>(null)
@@ -116,27 +121,27 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           setActiveNodeId(null)
           setExecutedNodes([...executed])
         },
-        onLog: (text) => {
-          setExecutionLog((prev) => [...prev, text])
+        onLog: (text, level) => {
+          setExecutionLog((prev) => [...prev, { text, level: level ?? "info" }])
         },
         onDone: (result) => {
-          setExecutionLog((prev) => [...prev, `\n✓ Workflow completed: ${result.task_status}`])
+          setExecutionLog((prev) => [...prev, { text: `\n✓ Workflow completed: ${result.task_status}`, level: "info" }])
         },
         onError: (errMsg) => {
-          setExecutionLog((prev) => [...prev, `\n✗ Workflow error: ${errMsg}`])
+          setExecutionLog((prev) => [...prev, { text: `\n✗ Workflow error: ${errMsg}`, level: "error" }])
         },
         onPaused: (nodeId, reason, sid) => {
           setIsPaused(true)
           setPausedNodeId(nodeId)
           setPauseReason(reason)
           setSessionId(sid)
-          setExecutionLog((prev) => [...prev, `\n⚠ Workflow paused at ${nodeId}: ${reason}`])
+          setExecutionLog((prev) => [...prev, { text: `\n⚠ Workflow paused at ${nodeId}: ${reason}`, level: "warning" }])
         },
         onAwaitInput: (sid, prompt) => {
           setSessionId(sid)
           setInputPrompt(prompt)
           setAwaitingInput(true)
-          setExecutionLog((prev) => [...prev, `\n🎤 Waiting for input: 「${prompt}」`])
+          setExecutionLog((prev) => [...prev, { text: `\n🎤 Waiting for input: 「${prompt}」`, level: "info" }])
         },
         onSession: (sid) => {
           setSessionId(sid)
@@ -145,11 +150,11 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       return result
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        setExecutionLog((prev) => [...prev, `\n⚠️ Workflow execution stopped by user`])
+        setExecutionLog((prev) => [...prev, { text: `\n⚠️ Workflow execution stopped by user`, level: "warning" }])
         return null
       }
       const msg = err instanceof Error ? err.message : "Unknown error"
-      setExecutionLog((prev) => [...prev, `✗ Error: ${msg}`])
+      setExecutionLog((prev) => [...prev, { text: `✗ Error: ${msg}`, level: "error" }])
       return null
     } finally {
       setIsExecuting(false)
@@ -180,38 +185,38 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           setActiveNodeId(null)
           setExecutedNodes([...executed])
         },
-        onLog: (text) => {
-          setExecutionLog((prev) => [...prev, text])
+        onLog: (text, level) => {
+          setExecutionLog((prev) => [...prev, { text, level: level ?? "info" }])
         },
         onDone: (result) => {
           setSessionId(null)
-          setExecutionLog((prev) => [...prev, `\n✓ Workflow completed: ${result.task_status}`])
+          setExecutionLog((prev) => [...prev, { text: `\n✓ Workflow completed: ${result.task_status}`, level: "info" }])
         },
         onError: (errMsg) => {
-          setExecutionLog((prev) => [...prev, `\n✗ Workflow error: ${errMsg}`])
+          setExecutionLog((prev) => [...prev, { text: `\n✗ Workflow error: ${errMsg}`, level: "error" }])
         },
         onPaused: (nid, reason, sid) => {
           setIsPaused(true)
           setPausedNodeId(nid)
           setPauseReason(reason)
           setSessionId(sid)
-          setExecutionLog((prev) => [...prev, `\n⚠ Workflow paused at ${nid}: ${reason}`])
+          setExecutionLog((prev) => [...prev, { text: `\n⚠ Workflow paused at ${nid}: ${reason}`, level: "warning" }])
         },
         onAwaitInput: (sid, prompt) => {
           setSessionId(sid)
           setInputPrompt(prompt)
           setAwaitingInput(true)
-          setExecutionLog((prev) => [...prev, `\n🎤 Waiting for input: 「${prompt}」`])
+          setExecutionLog((prev) => [...prev, { text: `\n🎤 Waiting for input: 「${prompt}」`, level: "info" }])
         },
       }, controller.signal)
       return result
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        setExecutionLog((prev) => [...prev, `\n⚠️ Workflow execution stopped by user`])
+        setExecutionLog((prev) => [...prev, { text: `\n⚠️ Workflow execution stopped by user`, level: "warning" }])
         return null
       }
       const msg = err instanceof Error ? err.message : "Unknown error"
-      setExecutionLog((prev) => [...prev, `✗ Error: ${msg}`])
+      setExecutionLog((prev) => [...prev, { text: `✗ Error: ${msg}`, level: "error" }])
       return null
     } finally {
       setIsExecuting(false)
@@ -227,7 +232,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     setIsPaused(false)
     setPausedNodeId(null)
     setPauseReason(null)
-    setExecutionLog((prev) => [...prev, "\n↺ Resetting — returning to origin..."])
+    setExecutionLog((prev) => [...prev, { text: "\n↺ Resetting — returning to origin...", level: "info" }])
 
     try {
       await resetWorkflowStream({
@@ -239,19 +244,19 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           setActiveNodeId(null)
           setExecutedNodes([...executed])
         },
-        onLog: (text) => {
-          setExecutionLog((prev) => [...prev, text])
+        onLog: (text, level) => {
+          setExecutionLog((prev) => [...prev, { text, level: level ?? "info" }])
         },
         onDone: () => {
-          setExecutionLog((prev) => [...prev, "✓ Robot returned to origin"])
+          setExecutionLog((prev) => [...prev, { text: "✓ Robot returned to origin", level: "info" }])
         },
         onError: (errMsg) => {
-          setExecutionLog((prev) => [...prev, `✗ Reset error: ${errMsg}`])
+          setExecutionLog((prev) => [...prev, { text: `✗ Reset error: ${errMsg}`, level: "error" }])
         },
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error"
-      setExecutionLog((prev) => [...prev, `✗ Reset failed: ${msg}`])
+      setExecutionLog((prev) => [...prev, { text: `✗ Reset failed: ${msg}`, level: "error" }])
     } finally {
       // Clear all state after reset completes
       setActiveNodeId(null)
@@ -285,8 +290,8 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     ? Math.round((executedNodes.filter((id) => id !== "__start__" && id !== "__end__").length / totalExecutableNodes) * 100)
     : 0
 
-  const appendLog = useCallback((text: string) => {
-    setExecutionLog((prev) => [...prev, text])
+  const appendLog = useCallback((text: string, level: "info" | "warning" | "error" = "info") => {
+    setExecutionLog((prev) => [...prev, { text, level }])
   }, [])
 
   const workflowState: WorkflowState = isPaused ? "paused" : isExecuting ? "running" : "idle"
@@ -295,23 +300,23 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     if (!sessionId) return
     setAwaitingInput(false)
     setInputPrompt("")
-    setExecutionLog((prev) => [...prev, `🗣️ Input: 「${text}」`])
+    setExecutionLog((prev) => [...prev, { text: `🗣️ Input: 「${text}」`, level: "info" }])
     try {
       await submitWorkflowInput(sessionId, text)
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error"
-      setExecutionLog((prev) => [...prev, `✗ Submit input failed: ${msg}`])
+      setExecutionLog((prev) => [...prev, { text: `✗ Submit input failed: ${msg}`, level: "error" }])
     }
   }, [sessionId])
 
   const stop = useCallback(async () => {
     if (!sessionId) return
-    setExecutionLog((prev) => [...prev, "⏸ Stop requested — waiting for current node to finish…"])
+    setExecutionLog((prev) => [...prev, { text: "⏸ Stop requested — waiting for current node to finish…", level: "warning" }])
     try {
       await stopWorkflow(sessionId)
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error"
-      setExecutionLog((prev) => [...prev, `✗ Stop request failed: ${msg}`])
+      setExecutionLog((prev) => [...prev, { text: `✗ Stop request failed: ${msg}`, level: "error" }])
     }
   }, [sessionId])
 
@@ -335,27 +340,27 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           setActiveNodeId(null)
           setExecutedNodes([...executed])
         },
-        onLog: (text) => {
-          setExecutionLog((prev) => [...prev, text])
+        onLog: (text, level) => {
+          setExecutionLog((prev) => [...prev, { text, level: level ?? "info" }])
         },
         onDone: (result) => {
-          setExecutionLog((prev) => [...prev, `\n✓ Workflow completed: ${result.task_status}`])
+          setExecutionLog((prev) => [...prev, { text: `\n✓ Workflow completed: ${result.task_status}`, level: "info" }])
         },
         onError: (errMsg) => {
-          setExecutionLog((prev) => [...prev, `\n✗ Workflow error: ${errMsg}`])
+          setExecutionLog((prev) => [...prev, { text: `\n✗ Workflow error: ${errMsg}`, level: "error" }])
         },
         onPaused: (nid, reason, sid) => {
           setIsPaused(true)
           setPausedNodeId(nid)
           setPauseReason(reason)
           setSessionId(sid)
-          setExecutionLog((prev) => [...prev, `\n⚠ Workflow paused at ${nid}: ${reason}`])
+          setExecutionLog((prev) => [...prev, { text: `\n⚠ Workflow paused at ${nid}: ${reason}`, level: "warning" }])
         },
         onAwaitInput: (sid, prompt) => {
           setSessionId(sid)
           setInputPrompt(prompt)
           setAwaitingInput(true)
-          setExecutionLog((prev) => [...prev, `\n🎤 Waiting for input: 「${prompt}」`])
+          setExecutionLog((prev) => [...prev, { text: `\n🎤 Waiting for input: 「${prompt}」`, level: "info" }])
         },
         onSession: (sid) => {
           setSessionId(sid)
@@ -364,11 +369,11 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       return result
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        setExecutionLog((prev) => [...prev, `\n⚠️ Workflow execution stopped by user`])
+        setExecutionLog((prev) => [...prev, { text: `\n⚠️ Workflow execution stopped by user`, level: "warning" }])
         return null
       }
       const msg = err instanceof Error ? err.message : "Unknown error"
-      setExecutionLog((prev) => [...prev, `✗ Error: ${msg}`])
+      setExecutionLog((prev) => [...prev, { text: `✗ Error: ${msg}`, level: "error" }])
       return null
     } finally {
       setIsExecuting(false)

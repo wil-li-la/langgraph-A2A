@@ -45,6 +45,7 @@ export interface StreamEvent {
   session_id?: string
   reason?: string
   prompt?: string
+  level?: "info" | "warning" | "error"
 }
 
 export interface StreamCallbacks {
@@ -52,7 +53,7 @@ export interface StreamCallbacks {
   onNodeEnd?: (nodeId: string, executedNodes: string[], history: string[]) => void
   onDone?: (result: ExecutionResult) => void
   onError?: (error: string) => void
-  onLog?: (text: string) => void
+  onLog?: (text: string, level?: "info" | "warning" | "error") => void
   onPaused?: (nodeId: string, reason: string, sessionId: string) => void
   onAwaitInput?: (sessionId: string, prompt: string) => void
   onSession?: (sessionId: string) => void
@@ -164,7 +165,7 @@ export async function executeWorkflowStream(
         switch (event.event) {
           case "log":
             if (event.text) {
-              callbacks.onLog?.(event.text)
+              callbacks.onLog?.(event.text, event.level)
             }
             break
           case "node_start":
@@ -258,7 +259,7 @@ export async function resumeWorkflowStream(
 
         switch (event.event) {
           case "log":
-            if (event.text) callbacks.onLog?.(event.text)
+            if (event.text) callbacks.onLog?.(event.text, event.level)
             break
           case "node_start":
             callbacks.onNodeStart?.(event.node_id ?? "", event.executed_nodes ?? [])
@@ -369,7 +370,7 @@ export async function resetWorkflowStream(
 
         switch (event.event) {
           case "log":
-            if (event.text) callbacks.onLog?.(event.text)
+            if (event.text) callbacks.onLog?.(event.text, event.level)
             break
           case "node_start":
             callbacks.onNodeStart?.(event.node_id ?? "", event.executed_nodes ?? [])

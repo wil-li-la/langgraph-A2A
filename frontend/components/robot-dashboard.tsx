@@ -120,11 +120,11 @@ export function RobotDashboard() {
                     resumeFromNode(nodeId)
                   } else if (workflowState === "idle") {
                     if (nodeId === "handle_error") {
-                      appendLog(`⚠ Cannot start from "${nodeId}" — error node is not a valid start target`)
+                      appendLog(`⚠ Cannot start from "${nodeId}" — error node is not a valid start target`, "warning")
                       return
                     }
                     if (!instruction.trim()) {
-                      appendLog("⚠ Enter an instruction first, then click a node to start from there")
+                      appendLog("⚠ Enter an instruction first, then click a node to start from there", "warning")
                       setHighlightInstructionTick((t) => t + 1)
                       return
                     }
@@ -197,14 +197,16 @@ export function RobotDashboard() {
                     <div
                       key={i}
                       className={`whitespace-pre-wrap font-mono text-sm leading-[1.5] ${
-                        entry.includes("✗") || entry.includes("WARNING") || entry.includes("ERROR") || entry.includes("failed")
+                        entry.level === "error"
                           ? "text-red-400"
-                          : entry.includes("✓") || entry.includes("▶") || entry.includes("✅")
-                            ? "text-emerald-400"
-                            : "text-muted-foreground"
+                          : entry.level === "warning"
+                            ? "text-amber-400"
+                            : entry.text.includes("✓") || entry.text.includes("✅")
+                              ? "text-emerald-400"
+                              : "text-muted-foreground"
                       }`}
                     >
-                      {entry}
+                      {entry.text}
                     </div>
                   ))}
                 </div>

@@ -37,20 +37,47 @@ async def teleop_websocket(ws: WebSocket):
                 except WebSocketDisconnect:
                     pass
 
-            async def robot_to_browser():
+            # Per-camera latest-frame buffer. Frame protocol is
+            # [1-byte camera_id][JPEG...]. If the browser/network is slower
+            # than the robot's publish rate, old frames are overwritten and
+            # only the newest frame per camera is sent — trades FPS for
+            # latency so the operator sees fresh video.
+            latest_frames: dict[int, bytes] = {}
+            new_frame = asyncio.Event()
+
+            async def robot_to_browser_reader():
+                """Drain robot_ws as fast as possible; forward text, coalesce frames."""
                 try:
                     async for msg in robot_ws:
                         if isinstance(msg, str):
+                            # Status messages are small and rare — send directly
                             await ws.send_text(msg)
-                        elif isinstance(msg, bytes):
-                            await ws.send_bytes(msg)
+                        elif isinstance(msg, bytes) and len(msg) >= 1:
+                            cam_id = msg[0]
+                            latest_frames[cam_id] = msg
+                            new_frame.set()
                 except websockets.exceptions.ConnectionClosed:
+                    pass
+
+            async def robot_to_browser_writer():
+                """Send the most recent frame per camera; old frames are dropped."""
+                try:
+                    while True:
+                        await new_frame.wait()
+                        new_frame.clear()
+                        # Snapshot and clear so concurrent reader writes go to a fresh batch
+                        batch = list(latest_frames.values())
+                        latest_frames.clear()
+                        for frame in batch:
+                            await ws.send_bytes(frame)
+                except (WebSocketDisconnect, websockets.exceptions.ConnectionClosed):
                     pass
 
             done, pending = await asyncio.wait(
                 [
                     asyncio.create_task(browser_to_robot()),
-                    asyncio.create_task(robot_to_browser()),
+                    asyncio.create_task(robot_to_browser_reader()),
+                    asyncio.create_task(robot_to_browser_writer()),
                 ],
                 return_when=asyncio.FIRST_COMPLETED,
             )

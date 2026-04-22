@@ -25,6 +25,7 @@ from app.healthcare.medication_delivery import (
     MedicationDeliveryAgent,
     create_medication_delivery_workflow,
     _paused_sessions,
+    _stop_requests,
 )
 from app.healthcare.mock_data import MockNLU
 from app.skills.browser_input import (
@@ -203,6 +204,7 @@ async def execute_workflow_stream(request: Request) -> StreamingResponse:
         patient_name = parsed["patient_name"]
         medication_name = parsed["medication_name"]
         session_id = str(uuid.uuid4())
+        start_from = body.get("start_from", "")
 
         async def event_generator() -> AsyncGenerator[str, None]:
             """Run stream_execute in a background thread, intercept stdout, and yield SSE lines."""
@@ -246,7 +248,16 @@ async def execute_workflow_stream(request: Request) -> StreamingResponse:
                 logging.getLogger("cure").addHandler(queue_handler)
 
                 try:
-                    for event_type, node_id, data in _agent.stream_execute(patient_name, medication_name, mode="manual", session_id=session_id):
+                    stream_kwargs = {
+                        "mode": "manual",
+                        "session_id": session_id,
+                    }
+                    if start_from:
+                        stream_kwargs["resume_state"] = _agent._build_initial_state(
+                            patient_name, medication_name, mode="manual"
+                        )
+                        stream_kwargs["resume_state"]["resume_from"] = start_from
+                    for event_type, node_id, data in _agent.stream_execute(patient_name, medication_name, **stream_kwargs):
                         try:
                             if not loop.is_closed():
                                 loop.call_soon_threadsafe(q.put_nowait, {
@@ -561,6 +572,27 @@ async def submit_workflow_input(request: Request) -> JSONResponse:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+async def submit_workflow_stop(request: Request) -> JSONResponse:
+    """POST /api/workflow/stop — Request a graceful stop.
+
+    Body: { "session_id": "..." }
+    Adds the session_id to _stop_requests; stream_execute will pause after
+    the current node finishes.
+    """
+    try:
+        body = await request.json()
+        session_id = body.get("session_id", "")
+        if not session_id:
+            return JSONResponse({"error": "Missing 'session_id'"}, status_code=400)
+
+        _stop_requests.add(session_id)
+        return JSONResponse({"status": "ok"})
+
+    except Exception as e:
+        logger.error(f"Stop request failed: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 async def reset_workflow_stream(request: Request) -> StreamingResponse:
     """POST /api/workflow/reset — Reset workflow: clear paused sessions and return robot to origin.
 
@@ -721,6 +753,7 @@ workflow_routes = [
     Route("/api/workflow/execute/stream", execute_workflow_stream, methods=["POST", "OPTIONS"]),
     Route("/api/workflow/resume", resume_workflow_stream, methods=["POST", "OPTIONS"]),
     Route("/api/workflow/input", submit_workflow_input, methods=["POST", "OPTIONS"]),
+    Route("/api/workflow/stop", submit_workflow_stop, methods=["POST", "OPTIONS"]),
     Route("/api/workflow/reset", reset_workflow_stream, methods=["POST", "OPTIONS"]),
     Route("/api/skills", get_skills, methods=["GET"]),
     Route("/api/stream/d405/rgb", stream_d405_rgb, methods=["GET"]),

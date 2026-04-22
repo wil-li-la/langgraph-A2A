@@ -13,10 +13,12 @@ import threading
 from contextlib import contextmanager
 from typing import Iterator
 
-# Loggers whose records should be captured into the SSE stream.
-# Includes root (catches propagated records), plus explicit children that
-# some third-party libs (e.g. cure.skills.*) don't propagate from.
-_CAPTURED_LOGGERS = ("", "app.healthcare.medication_delivery", "cure")
+# Attaching to the root logger is sufficient: Python logging propagates
+# records from every child to the root by default. `app.healthcare.*` and
+# `cure.skills.*` both propagate (see _setup_cure_loggers in
+# medication_delivery.py — it does not set propagate=False). Attaching to
+# children as well would duplicate every record.
+_CAPTURED_LOGGERS = ("",)
 
 
 def _level_name(record: logging.LogRecord) -> str:

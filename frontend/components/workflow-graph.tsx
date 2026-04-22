@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { WorkflowNode, WorkflowEdge } from "@/lib/mock-data"
 import type { WorkflowState } from "@/hooks/use-workflow"
 
@@ -135,6 +135,21 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, workflowState = "idl
 
     return { positions, phases: phaseBounds, width: totalWidth, height: maxY, errorPos }
   }, [nodes])
+
+  // Auto-scroll horizontally to keep the active node centered when the graph
+  // is wider than its container (common on iPad where the 4-phase pipeline
+  // exceeds viewport width).
+  useEffect(() => {
+    if (!activeNodeId) return
+    const container = scrollContainerRef.current
+    if (!container) return
+    const pos = layout.positions.get(activeNodeId)
+    if (!pos) return
+    if (layout.width <= container.clientWidth) return
+    const target = pos.x - container.clientWidth / 2
+    const clamped = Math.max(0, Math.min(target, layout.width - container.clientWidth))
+    container.scrollTo({ left: clamped, behavior: "smooth" })
+  }, [activeNodeId, layout])
 
   const activeEdges = useMemo(() => {
     if (!activeNodeId) return new Set<number>()

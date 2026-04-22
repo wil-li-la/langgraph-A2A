@@ -7,7 +7,7 @@ interface WorkflowGraphProps {
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]
   activeNodeId?: string | null
-  isPaused?: boolean
+  workflowState?: "idle" | "running" | "paused"
   onNodeClick?: (nodeId: string) => void
 }
 
@@ -71,7 +71,8 @@ const STATUS_LABELS: Record<string, string> = {
   error: "錯誤",
 }
 
-export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, onNodeClick }: WorkflowGraphProps) {
+export function WorkflowGraph({ nodes, edges, activeNodeId, workflowState = "idle", onNodeClick }: WorkflowGraphProps) {
+  const clickable = workflowState === "idle" || workflowState === "paused"
   const [hoveredNode, setHoveredNode] = useState<string | null>(null)
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -283,13 +284,14 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
           onMouseEnter={() => setHoveredNode(node.id)}
           onMouseLeave={() => setHoveredNode(null)}
           onClick={() => {
-            if (isPaused && onNodeClick && node.type !== "start" && node.type !== "end") {
+            const canClick = clickable && node.type !== "start" && node.type !== "end"
+            if (canClick && onNodeClick) {
               onNodeClick(node.id)
             } else {
               setSelectedNode(selectedNode === node.id ? null : node.id)
             }
           }}
-          style={{ cursor: isPaused && node.type !== "start" && node.type !== "end" ? "pointer" : "default" }}
+          style={{ cursor: clickable && node.type !== "start" && node.type !== "end" ? "pointer" : "default" }}
         >
           {/* Active glow */}
           {isActiveNode && (
@@ -315,8 +317,8 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
             className={isActiveNode ? "node-active" : isCompleted ? "node-completed" : undefined}
           />
 
-          {/* Pause hover highlight */}
-          {isPaused && node.type !== "start" && node.type !== "end" && isHovered && (
+          {/* Clickable hover highlight (IDLE or PAUSED) */}
+          {clickable && node.type !== "start" && node.type !== "end" && isHovered && (
             <rect
               x={x - 2} y={y - 2}
               width={NODE_W + 4} height={NODE_H + 4}
@@ -395,7 +397,7 @@ export function WorkflowGraph({ nodes, edges, activeNodeId, isPaused = false, on
         </g>
       )
     })
-  }, [nodes, edges, layout.positions, hoveredNode, selectedNode, isPaused, onNodeClick])
+  }, [nodes, edges, layout.positions, hoveredNode, selectedNode, clickable, onNodeClick])
 
   if (nodes.length === 0) {
     return (

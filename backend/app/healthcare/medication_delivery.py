@@ -34,6 +34,11 @@ _rr_initialized = False
 # In-memory store for paused workflow sessions.
 _paused_sessions: dict[str, dict] = {}
 
+# Session IDs that have requested a graceful stop. Consumed by stream_execute
+# after each node_end — when present, the workflow pauses via the existing
+# _paused_sessions mechanism instead of continuing.
+_stop_requests: set[str] = set()
+
 
 class AgentState(TypedDict):
     """State definition for medication delivery workflow."""
@@ -635,10 +640,16 @@ class MedicationDeliveryAgent:
                         "session_id": session_id,
                     })
 
-                    # In manual mode, check if this node failed
-                    if mode == "manual" and _should_pause(node_id, final_state):
-                        errors = final_state.get("errors", [])
-                        reason = errors[-1] if errors else final_state.get("task_status", "unknown error")
+                    # In manual mode, check if this node failed OR user requested stop
+                    user_stop = mode == "manual" and session_id in _stop_requests
+                    node_failed = mode == "manual" and _should_pause(node_id, final_state)
+                    if user_stop or node_failed:
+                        if user_stop:
+                            reason = "Stopped by user"
+                            _stop_requests.discard(session_id)
+                        else:
+                            errors = final_state.get("errors", [])
+                            reason = errors[-1] if errors else final_state.get("task_status", "unknown error")
                         _paused_sessions[session_id] = dict(final_state)
                         yield ("paused", node_id, {
                             "session_id": session_id,
@@ -662,6 +673,7 @@ class MedicationDeliveryAgent:
             rr.save(str(rrd_path))
             logger.info(f"Rerun log saved to {rrd_path}")
             _paused_sessions.pop(session_id, None)
+            _stop_requests.discard(session_id)
             yield ("done", "", final_state)
 
 

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import type { RobotId, WorkflowNode, WorkflowEdge } from "@/lib/mock-data"
 import { taskData } from "@/lib/mock-data"
-import { fetchWorkflow, fetchSkills, executeWorkflowStream, resumeWorkflowStream, resetWorkflowStream, submitWorkflowInput, type WorkflowData, type SkillsData, type ExecutionResult } from "@/lib/api"
+import { fetchWorkflow, fetchSkills, executeWorkflowStream, resumeWorkflowStream, resetWorkflowStream, submitWorkflowInput, stopWorkflow, type WorkflowData, type SkillsData, type ExecutionResult } from "@/lib/api"
 
 interface UseWorkflowResult {
   nodes: WorkflowNode[]
@@ -31,7 +31,12 @@ interface UseWorkflowResult {
   awaitingInput: boolean
   inputPrompt: string
   submitInput: (text: string) => Promise<void>
+  workflowState: WorkflowState
+  stop: () => Promise<void>
+  startFromNode: (nodeId: string, instruction: string) => Promise<ExecutionResult | null>
 }
+
+export type WorkflowState = "idle" | "running" | "paused"
 
 /**
  * Hook that fetches workflow data from the backend API.
@@ -288,6 +293,8 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
     setExecutionLog((prev) => [...prev, text])
   }, [])
 
+  const workflowState: WorkflowState = isPaused ? "paused" : isExecuting ? "running" : "idle"
+
   const submitInput = useCallback(async (text: string) => {
     if (!sessionId) return
     setAwaitingInput(false)
@@ -300,6 +307,79 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
       setExecutionLog((prev) => [...prev, `✗ Submit input failed: ${msg}`])
     }
   }, [sessionId])
+
+  const stop = useCallback(async () => {
+    if (!sessionId) return
+    setExecutionLog((prev) => [...prev, "⏸ Stop requested — waiting for current node to finish…"])
+    try {
+      await stopWorkflow(sessionId)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error"
+      setExecutionLog((prev) => [...prev, `✗ Stop request failed: ${msg}`])
+    }
+  }, [sessionId])
+
+  const startFromNode = useCallback(async (nodeId: string, instruction: string): Promise<ExecutionResult | null> => {
+    if (!instruction.trim()) return null
+
+    setIsExecuting(true)
+    setActiveNodeId(null)
+    setExecutedNodes([])
+    setExecutionLog([])
+
+    const controller = new AbortController()
+    setAbortController(controller)
+
+    try {
+      const result = await executeWorkflowStream(instruction, {
+        onNodeStart: (nid, executed) => {
+          setActiveNodeId(nid)
+          setExecutedNodes([...executed])
+        },
+        onNodeEnd: (nid, executed) => {
+          setActiveNodeId(null)
+          setExecutedNodes([...executed])
+        },
+        onLog: (text) => {
+          setExecutionLog((prev) => [...prev, text])
+        },
+        onDone: (result) => {
+          setExecutionLog((prev) => [...prev, `\n✓ Workflow completed: ${result.task_status}`])
+        },
+        onError: (errMsg) => {
+          setExecutionLog((prev) => [...prev, `\n✗ Workflow error: ${errMsg}`])
+        },
+        onPaused: (nid, reason, sid) => {
+          setIsPaused(true)
+          setPausedNodeId(nid)
+          setPauseReason(reason)
+          setSessionId(sid)
+          setExecutionLog((prev) => [...prev, `\n⚠ Workflow paused at ${nid}: ${reason}`])
+        },
+        onAwaitInput: (sid, prompt) => {
+          setSessionId(sid)
+          setInputPrompt(prompt)
+          setAwaitingInput(true)
+          setExecutionLog((prev) => [...prev, `\n🎤 Waiting for input: 「${prompt}」`])
+        },
+      }, controller.signal, { start_from: nodeId })
+      return result
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setExecutionLog((prev) => [...prev, `\n⚠️ Workflow execution stopped by user`])
+        return null
+      }
+      const msg = err instanceof Error ? err.message : "Unknown error"
+      setExecutionLog((prev) => [...prev, `✗ Error: ${msg}`])
+      return null
+    } finally {
+      setIsExecuting(false)
+      setActiveNodeId(null)
+      setAbortController(null)
+      setAwaitingInput(false)
+      setInputPrompt("")
+    }
+  }, [])
 
   return {
     nodes,
@@ -327,5 +407,8 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
     awaitingInput,
     inputPrompt,
     submitInput,
+    workflowState,
+    stop,
+    startFromNode,
   }
 }

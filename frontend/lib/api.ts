@@ -55,6 +55,7 @@ export interface StreamCallbacks {
   onLog?: (text: string) => void
   onPaused?: (nodeId: string, reason: string, sessionId: string) => void
   onAwaitInput?: (sessionId: string, prompt: string) => void
+  onSession?: (sessionId: string) => void
 }
 
 /**
@@ -156,6 +157,10 @@ export async function executeWorkflowStream(
       try {
         const event: StreamEvent = JSON.parse(trimmed.slice(6))
 
+        if (event.session_id) {
+          callbacks.onSession?.(event.session_id)
+        }
+
         switch (event.event) {
           case "log":
             if (event.text) {
@@ -246,6 +251,10 @@ export async function resumeWorkflowStream(
 
       try {
         const event: StreamEvent = JSON.parse(trimmed.slice(6))
+
+        if (event.session_id) {
+          callbacks.onSession?.(event.session_id)
+        }
 
         switch (event.event) {
           case "log":

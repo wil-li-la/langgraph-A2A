@@ -2,12 +2,13 @@
 
 import { useCallback, useMemo, useRef, useState } from "react"
 import type { WorkflowNode, WorkflowEdge } from "@/lib/mock-data"
+import type { WorkflowState } from "@/hooks/use-workflow"
 
 interface WorkflowGraphProps {
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]
   activeNodeId?: string | null
-  workflowState?: "idle" | "running" | "paused"
+  workflowState?: WorkflowState
   onNodeClick?: (nodeId: string) => void
 }
 

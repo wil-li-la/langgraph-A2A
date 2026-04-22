@@ -8,7 +8,7 @@ interface PauseGuideProps {
 }
 
 function isUserStop(reason: string): boolean {
-  return reason.toLowerCase().startsWith("stopped by user") || reason.toLowerCase().includes("stopped by user")
+  return reason.toLowerCase().includes("stopped by user")
 }
 
 export function PauseGuide({ nodeId, reason }: PauseGuideProps) {

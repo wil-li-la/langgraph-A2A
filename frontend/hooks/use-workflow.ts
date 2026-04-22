@@ -25,7 +25,6 @@ interface UseWorkflowResult {
   pauseReason: string | null
   sessionId: string | null
   startStreamExecution: (instruction: string) => Promise<ExecutionResult | null>
-  stopStreamExecution: () => void
   resumeFromNode: (nodeId: string) => Promise<ExecutionResult | null>
   appendLog: (text: string) => void
   awaitingInput: boolean
@@ -134,6 +133,9 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
           setAwaitingInput(true)
           setExecutionLog((prev) => [...prev, `\n🎤 Waiting for input: 「${prompt}」`])
         },
+        onSession: (sid) => {
+          setSessionId(sid)
+        },
       }, controller.signal)
       return result
     } catch (err) {
@@ -152,14 +154,6 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
       setInputPrompt("")
     }
   }, [])
-  
-  // Stop a streaming execution
-  const stopStreamExecution = useCallback(() => {
-    if (abortController) {
-      abortController.abort()
-      setAbortController(null)
-    }
-  }, [abortController])
 
   const resumeFromNode = useCallback(async (nodeId: string): Promise<ExecutionResult | null> => {
     if (!sessionId) return null
@@ -362,6 +356,9 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
           setAwaitingInput(true)
           setExecutionLog((prev) => [...prev, `\n🎤 Waiting for input: 「${prompt}」`])
         },
+        onSession: (sid) => {
+          setSessionId(sid)
+        },
       }, controller.signal, { start_from: nodeId })
       return result
     } catch (err) {
@@ -401,7 +398,6 @@ export function useWorkflow(robotId: RobotId): UseWorkflowResult {
     refetch: doFetch,
     resetWorkflow,
     startStreamExecution,
-    stopStreamExecution,
     resumeFromNode,
     appendLog,
     awaitingInput,

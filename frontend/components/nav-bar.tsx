@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useRobotConnection } from "@/contexts/robot-connection"
+import type { WorkflowState } from "@/hooks/use-workflow"
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
@@ -10,7 +11,7 @@ const NAV_ITEMS = [
 ] as const;
 
 interface NavBarProps {
-  workflowState?: "idle" | "running" | "paused"
+  workflowState?: WorkflowState
 }
 
 export function NavBar({ workflowState = "idle" }: NavBarProps) {

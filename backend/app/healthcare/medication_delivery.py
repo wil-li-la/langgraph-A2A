@@ -613,68 +613,72 @@ class MedicationDeliveryAgent:
 
         paused = False
         try:
-            for chunk in self.app.stream(initial_state):
-                for node_id, state_update in chunk.items():
-                    # Skip the resume_router node in events
-                    if node_id == "resume_router":
+            try:
+                for chunk in self.app.stream(initial_state):
+                    for node_id, state_update in chunk.items():
+                        # Skip the resume_router node in events
+                        if node_id == "resume_router":
+                            final_state.update(state_update)
+                            new_nodes = state_update.get("executed_nodes", [])
+                            executed_nodes.extend(new_nodes)
+                            final_state["executed_nodes"] = list(executed_nodes)
+                            continue
+
+                        yield ("node_start", node_id, {
+                            "executed_nodes": list(executed_nodes),
+                            "session_id": session_id,
+                        })
+
                         final_state.update(state_update)
                         new_nodes = state_update.get("executed_nodes", [])
                         executed_nodes.extend(new_nodes)
                         final_state["executed_nodes"] = list(executed_nodes)
-                        continue
 
-                    yield ("node_start", node_id, {
-                        "executed_nodes": list(executed_nodes),
-                        "session_id": session_id,
-                    })
-
-                    final_state.update(state_update)
-                    new_nodes = state_update.get("executed_nodes", [])
-                    executed_nodes.extend(new_nodes)
-                    final_state["executed_nodes"] = list(executed_nodes)
-
-                    yield ("node_end", node_id, {
-                        "executed_nodes": list(executed_nodes),
-                        "history": state_update.get("history", []),
-                        "task_status": state_update.get("task_status", ""),
-                        "session_id": session_id,
-                    })
-
-                    # In manual mode, check if this node failed OR user requested stop
-                    user_stop = mode == "manual" and session_id in _stop_requests
-                    node_failed = mode == "manual" and _should_pause(node_id, final_state)
-                    if user_stop or node_failed:
-                        if user_stop:
-                            reason = "Stopped by user"
-                            _stop_requests.discard(session_id)
-                        else:
-                            errors = final_state.get("errors", [])
-                            reason = errors[-1] if errors else final_state.get("task_status", "unknown error")
-                        _paused_sessions[session_id] = dict(final_state)
-                        yield ("paused", node_id, {
-                            "session_id": session_id,
-                            "reason": reason,
-                            "task_status": final_state.get("task_status", ""),
+                        yield ("node_end", node_id, {
                             "executed_nodes": list(executed_nodes),
+                            "history": state_update.get("history", []),
+                            "task_status": state_update.get("task_status", ""),
+                            "session_id": session_id,
                         })
-                        paused = True
+
+                        # In manual mode, check if this node failed OR user requested stop
+                        user_stop = mode == "manual" and session_id in _stop_requests
+                        node_failed = mode == "manual" and _should_pause(node_id, final_state)
+                        if user_stop or node_failed:
+                            if node_failed:
+                                errors = final_state.get("errors", [])
+                                reason = errors[-1] if errors else final_state.get("task_status", "unknown error")
+                            else:
+                                reason = "Stopped by user"
+                            if user_stop:
+                                _stop_requests.discard(session_id)
+                            _paused_sessions[session_id] = dict(final_state)
+                            yield ("paused", node_id, {
+                                "session_id": session_id,
+                                "reason": reason,
+                                "task_status": final_state.get("task_status", ""),
+                                "executed_nodes": list(executed_nodes),
+                            })
+                            paused = True
+                            break
+                    if paused:
                         break
-                if paused:
-                    break
 
-        except KeyboardInterrupt:
-            logger.warning("任務被使用者手動中斷 (KeyboardInterrupt)")
-            final_state["task_status"] = "interrupted"
-            final_state["history"].append("⚠️ 任務被手動中斷")
+            except KeyboardInterrupt:
+                logger.warning("任務被使用者手動中斷 (KeyboardInterrupt)")
+                final_state["task_status"] = "interrupted"
+                final_state["history"].append("⚠️ 任務被手動中斷")
 
-        if not paused:
-            self._print_summary(final_state, time.time() - start_time)
-            rrd_path = RERUN_LOG_DIR / f"medication_delivery_{patient_name}_{int(time.time())}.rrd"
-            rr.save(str(rrd_path))
-            logger.info(f"Rerun log saved to {rrd_path}")
-            _paused_sessions.pop(session_id, None)
+            if not paused:
+                self._print_summary(final_state, time.time() - start_time)
+                rrd_path = RERUN_LOG_DIR / f"medication_delivery_{patient_name}_{int(time.time())}.rrd"
+                rr.save(str(rrd_path))
+                logger.info(f"Rerun log saved to {rrd_path}")
+                _paused_sessions.pop(session_id, None)
+                yield ("done", "", final_state)
+        finally:
+            # Always clear stop flag for this session — prevents leaks on exceptions
             _stop_requests.discard(session_id)
-            yield ("done", "", final_state)
 
 
 # --- CLI for Testing ---

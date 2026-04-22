@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { RobotConnectionProvider } from '@/contexts/robot-connection'
+import { WorkflowProvider } from '@/contexts/workflow-context'
 
 import './globals.css'
 
@@ -22,7 +23,9 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className="font-sans antialiased">
         <RobotConnectionProvider>
-          {children}
+          <WorkflowProvider>
+            {children}
+          </WorkflowProvider>
         </RobotConnectionProvider>
       </body>
     </html>

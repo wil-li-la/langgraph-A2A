@@ -1,0 +1,427 @@
+"use client"
+
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react"
+import type { WorkflowNode, WorkflowEdge } from "@/lib/mock-data"
+import {
+  fetchWorkflow,
+  fetchSkills,
+  executeWorkflowStream,
+  resumeWorkflowStream,
+  resetWorkflowStream,
+  submitWorkflowInput,
+  stopWorkflow,
+  type WorkflowData,
+  type SkillsData,
+  type ExecutionResult,
+} from "@/lib/api"
+
+export type WorkflowState = "idle" | "running" | "paused"
+
+interface WorkflowContextValue {
+  nodes: WorkflowNode[]
+  edges: WorkflowEdge[]
+  skillsData: SkillsData | null
+  isLoading: boolean
+  error: string | null
+  isLive: boolean
+  isExecuting: boolean
+  activeNodeId: string | null
+  executedNodes: string[]
+  executionLog: string[]
+  progress: number
+  isResetting: boolean
+  refetch: () => void
+  resetWorkflow: () => Promise<void>
+  isPaused: boolean
+  pausedNodeId: string | null
+  pauseReason: string | null
+  sessionId: string | null
+  startStreamExecution: (instruction: string) => Promise<ExecutionResult | null>
+  resumeFromNode: (nodeId: string) => Promise<ExecutionResult | null>
+  appendLog: (text: string) => void
+  awaitingInput: boolean
+  inputPrompt: string
+  submitInput: (text: string) => Promise<void>
+  workflowState: WorkflowState
+  stop: () => Promise<void>
+  startFromNode: (nodeId: string, instruction: string) => Promise<ExecutionResult | null>
+}
+
+const WorkflowContext = createContext<WorkflowContextValue | null>(null)
+
+export function WorkflowProvider({ children }: { children: ReactNode }) {
+  const [data, setData] = useState<WorkflowData | null>(null)
+  const [skillsData, setSkillsData] = useState<SkillsData | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [isLive, setIsLive] = useState(false)
+
+  // Streaming execution state
+  const [isExecuting, setIsExecuting] = useState(false)
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(null)
+  const [executedNodes, setExecutedNodes] = useState<string[]>([])
+  const [executionLog, setExecutionLog] = useState<string[]>([])
+  const [abortController, setAbortController] = useState<AbortController | null>(null)
+  const [isPaused, setIsPaused] = useState(false)
+  const [pausedNodeId, setPausedNodeId] = useState<string | null>(null)
+  const [pauseReason, setPauseReason] = useState<string | null>(null)
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [isResetting, setIsResetting] = useState(false)
+  const [awaitingInput, setAwaitingInput] = useState(false)
+  const [inputPrompt, setInputPrompt] = useState("")
+
+  const doFetch = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const [workflow, skills] = await Promise.all([
+        fetchWorkflow(),
+        fetchSkills()
+      ])
+      setData(workflow)
+      setSkillsData(skills)
+      setIsLive(true)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error"
+      setError(message)
+      setIsLive(false)
+      setData(null)
+      setSkillsData(null)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    doFetch()
+  }, [doFetch])
+
+  // Start a streaming execution
+  const startStreamExecution = useCallback(async (instruction: string): Promise<ExecutionResult | null> => {
+    setIsExecuting(true)
+    setActiveNodeId(null)
+    setExecutedNodes([])
+    setExecutionLog([])
+
+    // Create new abort controller for this run
+    const controller = new AbortController()
+    setAbortController(controller)
+
+    try {
+      const result = await executeWorkflowStream(instruction, {
+        onNodeStart: (nodeId, executed) => {
+          setActiveNodeId(nodeId)
+          setExecutedNodes([...executed])
+        },
+        onNodeEnd: (nodeId, executed) => {
+          setActiveNodeId(null)
+          setExecutedNodes([...executed])
+        },
+        onLog: (text) => {
+          setExecutionLog((prev) => [...prev, text])
+        },
+        onDone: (result) => {
+          setExecutionLog((prev) => [...prev, `\n✓ Workflow completed: ${result.task_status}`])
+        },
+        onError: (errMsg) => {
+          setExecutionLog((prev) => [...prev, `\n✗ Workflow error: ${errMsg}`])
+        },
+        onPaused: (nodeId, reason, sid) => {
+          setIsPaused(true)
+          setPausedNodeId(nodeId)
+          setPauseReason(reason)
+          setSessionId(sid)
+          setExecutionLog((prev) => [...prev, `\n⚠ Workflow paused at ${nodeId}: ${reason}`])
+        },
+        onAwaitInput: (sid, prompt) => {
+          setSessionId(sid)
+          setInputPrompt(prompt)
+          setAwaitingInput(true)
+          setExecutionLog((prev) => [...prev, `\n🎤 Waiting for input: 「${prompt}」`])
+        },
+        onSession: (sid) => {
+          setSessionId(sid)
+        },
+      }, controller.signal)
+      return result
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setExecutionLog((prev) => [...prev, `\n⚠️ Workflow execution stopped by user`])
+        return null
+      }
+      const msg = err instanceof Error ? err.message : "Unknown error"
+      setExecutionLog((prev) => [...prev, `✗ Error: ${msg}`])
+      return null
+    } finally {
+      setIsExecuting(false)
+      setActiveNodeId(null)
+      setAbortController(null)
+      setAwaitingInput(false)
+      setInputPrompt("")
+    }
+  }, [])
+
+  const resumeFromNode = useCallback(async (nodeId: string): Promise<ExecutionResult | null> => {
+    if (!sessionId) return null
+
+    setIsPaused(false)
+    setPausedNodeId(null)
+    setPauseReason(null)
+    setIsExecuting(true)
+    setActiveNodeId(null)
+
+    const controller = new AbortController()
+    setAbortController(controller)
+
+    try {
+      const result = await resumeWorkflowStream(sessionId, nodeId, {
+        onNodeStart: (nid, executed) => {
+          setActiveNodeId(nid)
+          setExecutedNodes([...executed])
+        },
+        onNodeEnd: (nid, executed) => {
+          setActiveNodeId(null)
+          setExecutedNodes([...executed])
+        },
+        onLog: (text) => {
+          setExecutionLog((prev) => [...prev, text])
+        },
+        onDone: (result) => {
+          setSessionId(null)
+          setExecutionLog((prev) => [...prev, `\n✓ Workflow completed: ${result.task_status}`])
+        },
+        onError: (errMsg) => {
+          setExecutionLog((prev) => [...prev, `\n✗ Workflow error: ${errMsg}`])
+        },
+        onPaused: (nid, reason, sid) => {
+          setIsPaused(true)
+          setPausedNodeId(nid)
+          setPauseReason(reason)
+          setSessionId(sid)
+          setExecutionLog((prev) => [...prev, `\n⚠ Workflow paused at ${nid}: ${reason}`])
+        },
+        onAwaitInput: (sid, prompt) => {
+          setSessionId(sid)
+          setInputPrompt(prompt)
+          setAwaitingInput(true)
+          setExecutionLog((prev) => [...prev, `\n🎤 Waiting for input: 「${prompt}」`])
+        },
+      }, controller.signal)
+      return result
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setExecutionLog((prev) => [...prev, `\n⚠️ Workflow execution stopped by user`])
+        return null
+      }
+      const msg = err instanceof Error ? err.message : "Unknown error"
+      setExecutionLog((prev) => [...prev, `✗ Error: ${msg}`])
+      return null
+    } finally {
+      setIsExecuting(false)
+      setActiveNodeId(null)
+      setAbortController(null)
+      setAwaitingInput(false)
+      setInputPrompt("")
+    }
+  }, [sessionId])
+
+  // Reset: run return_to_origin on backend, then clear all state
+  const resetWorkflow = useCallback(async () => {
+    setIsResetting(true)
+    setIsPaused(false)
+    setPausedNodeId(null)
+    setPauseReason(null)
+    setExecutionLog((prev) => [...prev, "\n↺ Resetting — returning to origin..."])
+
+    try {
+      await resetWorkflowStream({
+        onNodeStart: (nodeId, executed) => {
+          setActiveNodeId(nodeId)
+          setExecutedNodes([...executed])
+        },
+        onNodeEnd: (nodeId, executed) => {
+          setActiveNodeId(null)
+          setExecutedNodes([...executed])
+        },
+        onLog: (text) => {
+          setExecutionLog((prev) => [...prev, text])
+        },
+        onDone: () => {
+          setExecutionLog((prev) => [...prev, "✓ Robot returned to origin"])
+        },
+        onError: (errMsg) => {
+          setExecutionLog((prev) => [...prev, `✗ Reset error: ${errMsg}`])
+        },
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error"
+      setExecutionLog((prev) => [...prev, `✗ Reset failed: ${msg}`])
+    } finally {
+      // Clear all state after reset completes
+      setActiveNodeId(null)
+      setExecutedNodes([])
+      setSessionId(null)
+      setIsResetting(false)
+    }
+  }, [])
+
+  // Render live nodes only — do not fall back to mock nodes anymore!
+  const rawNodes = data?.nodes ?? []
+  const edges = data?.edges ?? []
+
+  // Map raw nodes to apply execution status
+  const nodes = rawNodes.map((n) => {
+    if (n.id === activeNodeId) {
+      return { ...n, status: "active" as WorkflowNode["status"] }
+    }
+    if (executedNodes.includes(n.id)) {
+      if (n.type === "error") {
+        return { ...n, status: "error" as WorkflowNode["status"] }
+      }
+      return { ...n, status: "completed" as WorkflowNode["status"] }
+    }
+    return n
+  })
+
+  // Calculate progress
+  const totalExecutableNodes = rawNodes.filter((n) => n.type !== "start" && n.type !== "end").length
+  const progress = totalExecutableNodes > 0
+    ? Math.round((executedNodes.filter((id) => id !== "__start__" && id !== "__end__").length / totalExecutableNodes) * 100)
+    : 0
+
+  const appendLog = useCallback((text: string) => {
+    setExecutionLog((prev) => [...prev, text])
+  }, [])
+
+  const workflowState: WorkflowState = isPaused ? "paused" : isExecuting ? "running" : "idle"
+
+  const submitInput = useCallback(async (text: string) => {
+    if (!sessionId) return
+    setAwaitingInput(false)
+    setInputPrompt("")
+    setExecutionLog((prev) => [...prev, `🗣️ Input: 「${text}」`])
+    try {
+      await submitWorkflowInput(sessionId, text)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error"
+      setExecutionLog((prev) => [...prev, `✗ Submit input failed: ${msg}`])
+    }
+  }, [sessionId])
+
+  const stop = useCallback(async () => {
+    if (!sessionId) return
+    setExecutionLog((prev) => [...prev, "⏸ Stop requested — waiting for current node to finish…"])
+    try {
+      await stopWorkflow(sessionId)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error"
+      setExecutionLog((prev) => [...prev, `✗ Stop request failed: ${msg}`])
+    }
+  }, [sessionId])
+
+  const startFromNode = useCallback(async (nodeId: string, instruction: string): Promise<ExecutionResult | null> => {
+    if (!instruction.trim()) return null
+
+    setIsExecuting(true)
+    setActiveNodeId(null)
+    setExecutedNodes([])
+    setExecutionLog([])
+
+    const controller = new AbortController()
+    setAbortController(controller)
+
+    try {
+      const result = await executeWorkflowStream(instruction, {
+        onNodeStart: (nid, executed) => {
+          setActiveNodeId(nid)
+          setExecutedNodes([...executed])
+        },
+        onNodeEnd: (nid, executed) => {
+          setActiveNodeId(null)
+          setExecutedNodes([...executed])
+        },
+        onLog: (text) => {
+          setExecutionLog((prev) => [...prev, text])
+        },
+        onDone: (result) => {
+          setExecutionLog((prev) => [...prev, `\n✓ Workflow completed: ${result.task_status}`])
+        },
+        onError: (errMsg) => {
+          setExecutionLog((prev) => [...prev, `\n✗ Workflow error: ${errMsg}`])
+        },
+        onPaused: (nid, reason, sid) => {
+          setIsPaused(true)
+          setPausedNodeId(nid)
+          setPauseReason(reason)
+          setSessionId(sid)
+          setExecutionLog((prev) => [...prev, `\n⚠ Workflow paused at ${nid}: ${reason}`])
+        },
+        onAwaitInput: (sid, prompt) => {
+          setSessionId(sid)
+          setInputPrompt(prompt)
+          setAwaitingInput(true)
+          setExecutionLog((prev) => [...prev, `\n🎤 Waiting for input: 「${prompt}」`])
+        },
+        onSession: (sid) => {
+          setSessionId(sid)
+        },
+      }, controller.signal, { start_from: nodeId })
+      return result
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setExecutionLog((prev) => [...prev, `\n⚠️ Workflow execution stopped by user`])
+        return null
+      }
+      const msg = err instanceof Error ? err.message : "Unknown error"
+      setExecutionLog((prev) => [...prev, `✗ Error: ${msg}`])
+      return null
+    } finally {
+      setIsExecuting(false)
+      setActiveNodeId(null)
+      setAbortController(null)
+      setAwaitingInput(false)
+      setInputPrompt("")
+    }
+  }, [])
+
+  return (
+    <WorkflowContext.Provider value={{
+      nodes,
+      edges,
+      skillsData,
+      isLoading,
+      error,
+      isLive,
+      isExecuting,
+      isResetting,
+      activeNodeId,
+      executedNodes,
+      executionLog,
+      progress,
+      isPaused,
+      pausedNodeId,
+      pauseReason,
+      sessionId,
+      refetch: doFetch,
+      resetWorkflow,
+      startStreamExecution,
+      resumeFromNode,
+      appendLog,
+      awaitingInput,
+      inputPrompt,
+      submitInput,
+      workflowState,
+      stop,
+      startFromNode,
+    }}>
+      {children}
+    </WorkflowContext.Provider>
+  )
+}
+
+export function useWorkflowContext(): WorkflowContextValue {
+  const ctx = useContext(WorkflowContext)
+  if (!ctx) throw new Error("useWorkflowContext must be used inside WorkflowProvider")
+  return ctx
+}

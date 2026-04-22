@@ -117,7 +117,15 @@ export function RobotDashboard() {
                 onNodeClick={(nodeId) => {
                   if (workflowState === "paused") {
                     resumeFromNode(nodeId)
-                  } else if (workflowState === "idle" && instruction.trim()) {
+                  } else if (workflowState === "idle") {
+                    if (nodeId === "handle_error") {
+                      appendLog(`⚠ Cannot start from "${nodeId}" — error node is not a valid start target`)
+                      return
+                    }
+                    if (!instruction.trim()) {
+                      appendLog("⚠ Enter an instruction first, then click a node to start from there")
+                      return
+                    }
                     startFromNode(nodeId, instruction.trim())
                   }
                 }}

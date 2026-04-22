@@ -361,9 +361,7 @@ def return_to_origin_node(state: AgentState) -> dict:
             "executed_nodes": ["return_to_origin"],
         }
 
-    _section("🏠", f"返回原點: 從 {current_loc} 先導航至藥局，再回充電座")
-    navigate_skill("medicine")
-    _log("✓", "已到達藥局，繼續返回原點")
+    _section("🏠", f"返回原點: 從 {current_loc} 直接導航回充電座")
     navigate_skill("origin")
 
     _log("✓", "已返回原點")

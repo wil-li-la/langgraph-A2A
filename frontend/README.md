@@ -1,114 +1,116 @@
 # Frontend — Robot Task Dashboard
 
-Next.js dashboard for visualizing and controlling the medication delivery robot workflow in real time.
+Next.js dashboard for visualizing and controlling the medication delivery robot workflow in real time. Also hosts the teleop page with WebSocket-streamed camera feeds + joint controls.
 
 ## Stack
 
-- **Next.js 16** (App Router, Turbopack)
+- **Next.js 15** (App Router, Turbopack)
 - **React 19**
-- **Tailwind CSS v4** + **shadcn/ui**
+- **Tailwind CSS** + **shadcn/ui**
 - **pnpm**
 
 ## Development
 
 ```bash
-cp .env.example .env.local    # set NEXT_PUBLIC_API_URL
+cp .env.example .env.local   # set NEXT_PUBLIC_API_URL
 pnpm install
-pnpm dev                      # http://localhost:3000
+pnpm dev          # http://localhost:3000
 pnpm build
-pnpm lint                     # ESLint + TypeScript
+pnpm lint         # ESLint + TypeScript
 ```
 
-`NEXT_PUBLIC_API_URL` is read at dev-server start (not at runtime) — restart `pnpm dev` after editing `.env.local`. See [`.env.example`](./.env.example) for the three usage modes (localhost / LAN / Cloudflare tunnel).
+`NEXT_PUBLIC_API_URL` options — see `.env.example`:
 
-For iPad / mobile access with a working microphone, the frontend must be served over HTTPS — see the root [README.md](../README.md#remote-access-via-cloudflare-tunnel) for the Cloudflare Tunnel setup. If your tunnel is already provisioned, just set `NEXT_PUBLIC_API_URL` to the tunneled backend hostname and `pnpm dev`.
+- `http://localhost:9999` — local dev on same machine
+- `http://192.168.1.X:9999` — LAN (no HTTPS; mic APIs disabled on other devices)
+- `https://stretch-api.your-domain.com` — via Cloudflare Tunnel (mic works on iPad/phone)
 
-## State machine
+For tunnel setup see the root [README](../README.md#remote-access-via-cloudflare-tunnel).
 
-The dashboard has three top-level states derived from the workflow hook:
+## Dashboard state machine
 
-| State | Teleop link | Mode panel shows | Click node |
-|---|---|---|---|
-| `idle` | enabled | instruction input + START | "start from here" (requires instruction) |
-| `running` | 🔒 locked | STOP (graceful) | no-op |
-| `paused` | enabled | RESUME from `<node>` | "resume from here" |
+The dashboard operates as a three-state machine derived from existing flags in `contexts/workflow-context.tsx`:
 
-Design spec: [`docs/superpowers/specs/2026-04-22-dashboard-state-machine-design.md`](../docs/superpowers/specs/2026-04-22-dashboard-state-machine-design.md).
+| State | Controls | Teleop link |
+|---|---|---|
+| **IDLE** | `START` button, click-any-node to start from there | unlocked |
+| **RUNNING** | `STOP` (graceful — pauses after current node finishes) | locked 🔒 |
+| **PAUSED** | `RESUME from <node>`, click-any-node to resume from there | unlocked |
+
+Pauses come from three sources, handled identically in the UI: user-pressed STOP, node routed to `handle_error`, and `await_input` sub-state (browser voice/text prompt during `check_identity`).
 
 ## Structure
 
 ```
 app/
-├── layout.tsx               # wraps children in RobotConnectionProvider + WorkflowProvider
-├── page.tsx                 # main route → RobotDashboard
-├── teleop/page.tsx          # /teleop route (full-screen robot control)
+├── layout.tsx               # Mounts WorkflowProvider + RobotConnectionProvider app-wide
+├── page.tsx                 # Renders <RobotDashboard />
+├── teleop/page.tsx          # Teleop route
 └── globals.css
 
 components/
-├── robot-dashboard.tsx      # top-level layout; wires NavBar, WorkflowGraph, VideoPanel, WorkflowControls, VoiceInput, PauseGuide, ExecutionLog
-├── nav-bar.tsx              # robot IP input + connect + nav links (teleop link gates on workflowState)
-├── workflow-graph.tsx       # SVG LangGraph; auto-scrolls to active node; clickable in idle/paused
-├── workflow-controls.tsx    # three-variant panel (IDLE/RUNNING/PAUSED)
-├── voice-input.tsx          # hold-to-talk (Web Speech API) + text fallback; used in `check_identity` prompts
-├── pause-guide.tsx          # amber (user-stopped) or red (error) guide when paused
-├── skills-panel.tsx         # horizontal strip of required cure skills with load status
-├── video-panel.tsx          # 3-pane layout: head camera, gripper camera, nav map
-└── teleop/                  # components for /teleop route (joint sliders, camera views, etc.)
+├── robot-dashboard.tsx      # Top-level dashboard layout
+├── nav-bar.tsx              # Title + robot IP + Teleop link (locked while RUNNING)
+├── workflow-controls.tsx    # START/STOP/RESUME panel; three IDLE/RUNNING/PAUSED variants
+├── workflow-graph.tsx       # Live LangGraph SVG, clickable nodes in IDLE + PAUSED, auto-scroll to active
+├── skills-panel.tsx         # Horizontal skill chips ● grasp ● listen ● speak ● handover ● navigate
+├── voice-input.tsx          # Dual-mode: hold-to-talk (Web Speech API) + text input
+├── pause-guide.tsx          # Post-pause guidance (amber for user-stop, red for error)
+├── video-panel.tsx          # 3-cam grid (realsense, gripper, nav map)
+└── teleop/                  # Teleop-specific UI (StatusBar, SpeedScale, joint sliders, joystick, …)
 
 contexts/
-├── robot-connection.tsx     # WebSocket to /ws/teleop — survives page navigation
-└── workflow-context.tsx     # All workflow state + actions — survives page navigation
-                             # (see hooks/use-workflow.ts — thin re-export)
+├── workflow-context.tsx     # All workflow state — survives /teleop navigation
+└── robot-connection.tsx     # Robot IP input + WebSocket connection
 
 hooks/
-├── use-workflow.ts          # thin re-export of useWorkflowContext
-├── use-teleop.ts            # WebSocket client + camera frame decoder
-├── use-mobile.tsx
-└── use-toast.ts
+├── use-workflow.ts          # Thin re-export of useWorkflowContext()
+└── use-teleop.ts            # WebSocket connection to /ws/teleop; camera frame decoding
 
 lib/
-├── api.ts                   # SSE/REST client + stream event types
-├── mock-data.ts             # fallback WorkflowNode[] / WorkflowEdge[] when backend unavailable
-└── teleop-protocol.ts       # robot WS message types + camera frame parser
-
-types/
-├── robot.ts                 # RobotStatus, CameraName, JointName
-└── speech.d.ts              # SpeechRecognition API types (Safari-specific)
+├── api.ts                   # REST + SSE client
+├── teleop-protocol.ts       # Binary [camera_id][jpeg] frame parser, status JSON parser
+└── mock-data.ts             # Fallback when backend is unreachable
 ```
-
-## Workflow context
-
-All workflow state lives in one React Context mounted at the root layout, so it survives navigation between `/` and `/teleop`:
-
-```tsx
-const { workflowState, startStreamExecution, stop, resumeFromNode, executionLog, ... } = useWorkflow()
-```
-
-`executionLog` is `LogEntry[]` (`{text, level: "info"|"warning"|"error"}`) — color-coded in the dashboard by level.
 
 ## API client (`lib/api.ts`)
 
-| Function | Endpoint | Description |
+| Function | Endpoint | Purpose |
 |---|---|---|
-| `fetchWorkflow()` | `GET /api/workflow` | Load graph structure |
-| `fetchSkills()` | `GET /api/skills` | Required + available cure skills |
-| `executeWorkflow()` | `POST /api/workflow/execute` | One-shot blocking execution |
-| `executeWorkflowStream()` | `POST /api/workflow/execute/stream` | SSE streaming; accepts `start_from` param |
-| `resumeWorkflowStream()` | `POST /api/workflow/resume` | Resume paused workflow from node |
-| `stopWorkflow()` | `POST /api/workflow/stop` | Request graceful stop |
-| `submitWorkflowInput()` | `POST /api/workflow/input` | Submit browser-captured voice/text to a waiting `check_identity` |
-| `resetWorkflowStream()` | `POST /api/workflow/reset` | Return robot to origin, clear paused sessions |
+| `fetchWorkflow()` | `GET /api/workflow` | Graph nodes + edges |
+| `fetchSkills()` | `GET /api/skills` | Required + available skill list |
+| `executeWorkflowStream(instruction, cb, signal, opts?)` | `POST /api/workflow/execute/stream` | SSE streaming; `opts.start_from` = start from a specific node |
+| `resumeWorkflowStream(sessionId, nodeId, cb, signal)` | `POST /api/workflow/resume` | Resume paused workflow from node |
+| `stopWorkflow(sessionId)` | `POST /api/workflow/stop` | Graceful stop — pauses after current node |
+| `submitWorkflowInput(sessionId, text)` | `POST /api/workflow/input` | Deliver browser voice/text to a waiting `check_identity` |
+| `resetWorkflowStream(cb, signal)` | `POST /api/workflow/reset` | Robot returns to origin, state cleared |
 
-SSE event types: `node_start`, `node_end`, `log`, `done`, `error`, `paused`, `await_input`.
+### SSE events
 
-If the backend is unreachable, `fetchWorkflow()` falls back to mock data from `lib/mock-data.ts`.
+```ts
+// {event: "log", text, level: "info"|"warning"|"error"}
+// {event: "node_start", node_id, executed_nodes, session_id}
+// {event: "node_end",   node_id, executed_nodes, history, task_status, session_id}
+// {event: "paused",     node_id, reason, session_id, …}
+// {event: "await_input", session_id, prompt}
+// {event: "done",       result}
+// {event: "error",      error}
+```
 
-## Voice input (iPad / phone)
+Log events now carry `level` — frontend colors deterministically (red=error, amber=warning, muted=info, emerald if the text contains `✓`).
 
-The `check_identity` node pauses the workflow and requests browser input. `VoiceInput` uses Safari's `webkitSpeechRecognition` (zh-TW) for hold-to-talk, with a text field as fallback. The `getUserMedia` and `SpeechRecognition` APIs require a **secure context** — on iOS Safari that means HTTPS (or `localhost`). See root README's Cloudflare Tunnel section.
+## Voice input
+
+`components/voice-input.tsx` uses `webkitSpeechRecognition` (Safari/iOS) with `lang="zh-TW"`. Hold-to-talk pattern: press and hold → recording, release → stop. Text input always available as fallback. Requires HTTPS (secure context) — see tunnel setup.
+
+During a workflow's `check_identity` node in manual mode, the backend fires an `await_input` event; the Voice Input panel border turns sky-blue and "Awaiting" badge appears. Submitted text goes to `POST /api/workflow/input`, unblocks the workflow.
+
+## Teleop
+
+`/teleop` connects to `ws(s)://<api>/ws/teleop?robot=ws://<robot-ip>:8765` — the backend relays to the robot's WebSocket. Binary messages are `[1-byte camera_id][JPEG]`; the backend relay drops old frames per-camera when the browser can't keep up (see `backend/app/teleop_api.py`).
 
 ## Notes
 
-- `next.config.mjs` has `typescript: { ignoreBuildErrors: true }` — TypeScript errors don't block builds (but `pnpm lint` surfaces them).
-- No test framework; verification is manual via browser + `tsc --noEmit`.
-- Camera frames arrive as binary WebSocket messages (`[1-byte camera_id][jpeg]`), decoded client-side in `use-teleop.ts` and rendered via canvas.
+- `next.config.mjs` has `typescript: { ignoreBuildErrors: true }` — TypeScript errors don't block builds. Still run `npx tsc --noEmit` before pushing.
+- No test framework configured; verification is manual/integration.
+- Workflow state lives in a Context mounted at `app/layout.tsx` so it survives navigation to `/teleop` and back.

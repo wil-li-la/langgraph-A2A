@@ -4,11 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { RobotStatus, CameraName } from "@/types/robot";
 import {
   parseStatusMessage,
+  parseErrorMessage,
   parseCameraFrame,
   CAMERA_ID_OVERHEAD,
   CAMERA_ID_REALSENSE,
   CAMERA_ID_GRIPPER,
   type RobotCommand,
+  type ConnectionErrorReason,
 } from "@/lib/teleop-protocol";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9999";
@@ -39,6 +41,8 @@ type CameraFrames = Record<CameraName, string | null>;
 export function useTeleop() {
   const [status, setStatus] = useState<RobotStatus>(DEFAULT_STATUS);
   const [isConnected, setIsConnected] = useState(false);
+  const [connectionError, setConnectionError] =
+    useState<ConnectionErrorReason | null>(null);
   const [cameras, setCameras] = useState<CameraFrames>({
     overhead: null,
     realsense: null,
@@ -75,7 +79,9 @@ export function useTeleop() {
       ws.binaryType = "arraybuffer";
 
       ws.onopen = () => {
-        setIsConnected(true);
+        // The relay accepts the browser WS before probing the robot, so
+        // isConnected stays false until the first STATUS arrives and we
+        // know the robot path is actually live.
         if (reconnectTimer.current) {
           clearTimeout(reconnectTimer.current);
           reconnectTimer.current = undefined;
@@ -84,8 +90,18 @@ export function useTeleop() {
 
       ws.onmessage = (event) => {
         if (typeof event.data === "string") {
+          const err = parseErrorMessage(event.data);
+          if (err) {
+            setConnectionError(err.reason);
+            setIsConnected(false);
+            return;
+          }
           const parsed = parseStatusMessage(event.data);
-          if (parsed) setStatus(parsed);
+          if (parsed) {
+            setStatus(parsed);
+            setIsConnected(true);
+            setConnectionError(null);
+          }
         } else if (event.data instanceof ArrayBuffer) {
           const frame = parseCameraFrame(event.data);
           if (!frame) return;
@@ -138,6 +154,7 @@ export function useTeleop() {
   const disconnect = useCallback(() => {
     currentUrlRef.current = null;
     cleanup();
+    setConnectionError(null);
   }, [cleanup]);
 
   const sendCommand = useCallback((cmd: RobotCommand) => {
@@ -151,5 +168,13 @@ export function useTeleop() {
   // and should persist across page navigation. The WebSocket connection
   // is only closed explicitly via disconnect().
 
-  return { status, cameras, isConnected, sendCommand, connect, disconnect };
+  return {
+    status,
+    cameras,
+    isConnected,
+    connectionError,
+    sendCommand,
+    connect,
+    disconnect,
+  };
 }

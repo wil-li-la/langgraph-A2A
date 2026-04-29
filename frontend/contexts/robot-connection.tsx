@@ -3,12 +3,13 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from "react"
 import { useTeleop } from "@/hooks/use-teleop"
 import type { RobotStatus, CameraName } from "@/types/robot"
-import type { RobotCommand } from "@/lib/teleop-protocol"
+import type { RobotCommand, ConnectionErrorReason } from "@/lib/teleop-protocol"
 
 interface RobotConnectionContextValue {
   robotHost: string
   setRobotHost: (host: string) => void
   isConnected: boolean
+  connectionError: ConnectionErrorReason | null
   status: RobotStatus
   cameras: Record<CameraName, string | null>
   sendCommand: (cmd: RobotCommand) => void
@@ -19,9 +20,11 @@ interface RobotConnectionContextValue {
 
 const RobotConnectionContext = createContext<RobotConnectionContextValue | null>(null)
 
+const DEFAULT_ROBOT_HOST = process.env.NEXT_PUBLIC_ROBOT_HOST ?? ""
+
 export function RobotConnectionProvider({ children }: { children: ReactNode }) {
-  const [robotHost, setRobotHost] = useState("")
-  const { status, cameras, isConnected, sendCommand, connect, disconnect } = useTeleop()
+  const [robotHost, setRobotHost] = useState(DEFAULT_ROBOT_HOST)
+  const { status, cameras, isConnected, connectionError, sendCommand, connect, disconnect } = useTeleop()
 
   const handleConnect = useCallback(() => {
     if (robotHost.trim()) {
@@ -37,6 +40,7 @@ export function RobotConnectionProvider({ children }: { children: ReactNode }) {
         robotHost,
         setRobotHost,
         isConnected,
+        connectionError,
         status,
         cameras,
         sendCommand,

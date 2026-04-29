@@ -20,6 +20,13 @@ export const CAMERA_ID_OVERHEAD = 0;
 export const CAMERA_ID_REALSENSE = 1;
 export const CAMERA_ID_GRIPPER = 2;
 
+export type ConnectionErrorReason = "public_unreachable" | "robot_unreachable";
+
+export interface TeleopError {
+  reason: ConnectionErrorReason;
+  message?: string;
+}
+
 export function parseStatusMessage(data: string): RobotStatus | null {
   try {
     const msg = JSON.parse(data);
@@ -33,6 +40,21 @@ export function parseStatusMessage(data: string): RobotStatus | null {
         robot_pose: msg.robot_pose ?? null,
         nav_path: msg.nav_path ?? [],
       };
+    }
+  } catch {
+    // ignore malformed messages
+  }
+  return null;
+}
+
+export function parseErrorMessage(data: string): TeleopError | null {
+  try {
+    const msg = JSON.parse(data);
+    if (
+      msg.type === "error" &&
+      (msg.reason === "public_unreachable" || msg.reason === "robot_unreachable")
+    ) {
+      return { reason: msg.reason, message: msg.message };
     }
   } catch {
     // ignore malformed messages

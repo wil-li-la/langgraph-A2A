@@ -16,8 +16,15 @@ interface NavBarProps {
 
 export function NavBar({ workflowState = "idle" }: NavBarProps) {
   const pathname = usePathname();
-  const { robotHost, setRobotHost, isConnected, handleConnect, disconnect } = useRobotConnection();
+  const { robotHost, setRobotHost, isConnected, connectionError, handleConnect, disconnect } = useRobotConnection();
   const teleopLocked = workflowState === "running"
+
+  const errorLabel =
+    connectionError === "public_unreachable"
+      ? "Public IP unreachable"
+      : connectionError === "robot_unreachable"
+        ? "Robot offline"
+        : null
 
   return (
     <header className="border-b border-border bg-background px-3 py-2 shrink-0 sm:px-4">
@@ -52,6 +59,23 @@ export function NavBar({ workflowState = "idle" }: NavBarProps) {
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-foreground" />
               </span>
               <span className="text-foreground font-medium">Stretch 3</span>
+            </span>
+          )}
+          {!isConnected && errorLabel && (
+            <span
+              title={
+                connectionError === "public_unreachable"
+                  ? "Cannot reach the public IP — check network / port forwarding"
+                  : "Public IP reachable, but the robot WS server isn't responding"
+              }
+              className={`flex items-center gap-1.5 font-mono text-sm ${
+                connectionError === "public_unreachable"
+                  ? "text-destructive"
+                  : "text-amber-500 dark:text-amber-400"
+              }`}
+            >
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-current" />
+              <span className="font-medium">{errorLabel}</span>
             </span>
           )}
         </div>

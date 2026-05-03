@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Generator, Optional, Tuple
+from typing import Any, Generator, Tuple
 
 from langgraph.prebuilt import create_react_agent
 

@@ -18,7 +18,7 @@ from cure.skills.handover import handover_skill
 from cure.skills.navigate import navigate_skill
 
 from app.skills.browser_input import browser_input_skill
-from app.mock_data import MockDatabase, MockRobotActions
+from app.mock_data import MockDatabase
 
 # Locate cure/config.yaml without depending on the current working directory.
 # Falls back to the original cwd-relative path so scripts that already chdir

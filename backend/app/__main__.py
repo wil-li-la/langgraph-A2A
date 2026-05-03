@@ -7,9 +7,8 @@ import sys
 import click
 import httpx
 import uvicorn
-from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
-from starlette.routing import Route, WebSocketRoute
+from starlette.routing import WebSocketRoute
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler

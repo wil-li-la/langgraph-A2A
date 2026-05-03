@@ -2,10 +2,9 @@
 
 import json
 import logging
-import random
 import re
 import time
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -87,140 +86,10 @@ class MockDatabase:
         }
     }
     
-    # Navigation waypoints
-    LOCATIONS = {
-        "charging_dock": {"x": 0, "y": 0, "description": "充電站"},
-        "pharmacy": {"x": 10, "y": 5, "description": "藥局"},
-        "room_301": {"x": 20, "y": 10, "description": "301病房"},
-        "room_302": {"x": 20, "y": 12, "description": "302病房"},
-        "room_303": {"x": 20, "y": 14, "description": "303病房"},
-        "room_304": {"x": 20, "y": 16, "description": "304病房"},
-        "room_305": {"x": 20, "y": 18, "description": "305病房"}
-    }
-    
     @classmethod
     def get_patient(cls, name: str) -> Optional[Dict]:
         """Get patient information by name."""
         return cls.PATIENTS.get(name)
-    
-    @classmethod
-    def get_medication(cls, name: str) -> Optional[Dict]:
-        """Get medication information by name."""
-        return cls.MEDICATIONS.get(name)
-    
-    @classmethod
-    def get_room_location(cls, room: str) -> Optional[Dict]:
-        """Get location coordinates for a room."""
-        return cls.LOCATIONS.get(f"room_{room}")
-
-
-class MockRobotActions:
-    """Mock robot actions with simulated delays."""
-    
-    @staticmethod
-    def navigate(from_loc: str, to_loc: str) -> Dict:
-        """Simulate robot navigation."""
-        # Calculate simulated travel time (2-5 seconds)
-        travel_time = random.uniform(2.0, 5.0)
-        time.sleep(min(travel_time, 0.5))  # Actual sleep capped for demo
-        
-        return {
-            "success": True,
-            "from": from_loc,
-            "to": to_loc,
-            "duration": round(travel_time, 1),
-            "path_length": round(random.uniform(5.0, 15.0), 1)
-        }
-    
-    @staticmethod
-    def detect_medication(medication_name: str) -> Dict:
-        """Simulate vision-based medication detection."""
-        time.sleep(0.3)  # Simulated vision processing
-        
-        med_info = MockDatabase.get_medication(medication_name)
-        if not med_info:
-            return {
-                "success": False,
-                "detected": False,
-                "confidence": 0.0,
-                "message": f"未找到藥物: {medication_name}"
-            }
-        
-        # Simulate 95% success rate
-        success = random.random() > 0.05
-        confidence = random.uniform(0.85, 0.99) if success else random.uniform(0.3, 0.6)
-        
-        return {
-            "success": success,
-            "detected": success,
-            "confidence": round(confidence, 2),
-            "location": med_info.get("location"),
-            "description": med_info.get("description"),
-            "message": f"藥物已定位: {medication_name}" if success else "視覺辨識失敗"
-        }
-    
-    @staticmethod
-    def pickup_medication() -> Dict:
-        """Simulate robotic arm picking up medication."""
-        time.sleep(0.4)  # Simulated manipulation time
-        
-        # Simulate 98% success rate
-        success = random.random() > 0.02
-        
-        return {
-            "success": success,
-            "gripper_closed": success,
-            "force": round(random.uniform(0.5, 1.5), 2),
-            "message": "藥物已抓取" if success else "抓取失敗，請重試"
-        }
-    
-    @staticmethod
-    def verify_identity(patient_name: str) -> Dict:
-        """Simulate face recognition for patient identity verification."""
-        time.sleep(0.3)  # Simulated face recognition processing
-        
-        patient_info = MockDatabase.get_patient(patient_name)
-        if not patient_info:
-            return {
-                "success": False,
-                "verified": False,
-                "confidence": 0.0,
-                "message": f"病患資料庫中無此人: {patient_name}"
-            }
-        
-        # Simulate 97% success rate
-        success = random.random() > 0.03
-        confidence = random.uniform(0.90, 0.99) if success else random.uniform(0.4, 0.7)
-        
-        return {
-            "success": success,
-            "verified": success,
-            "confidence": round(confidence, 2),
-            "face_id": patient_info.get("face_id"),
-            "message": f"身份驗證成功: {patient_name}" if success else "人臉辨識失敗"
-        }
-    
-    @staticmethod
-    def handoff_medication() -> Dict:
-        """Simulate handing medication to patient."""
-        time.sleep(0.2)
-        
-        return {
-            "success": True,
-            "gripper_opened": True,
-            "message": "藥物已遞交給病患"
-        }
-    
-    @staticmethod
-    def speak(message: str) -> Dict:
-        """Simulate text-to-speech."""
-        time.sleep(0.1)
-        
-        return {
-            "success": True,
-            "message": message,
-            "duration": len(message) * 0.1
-        }
 
 
 class MockNLU:

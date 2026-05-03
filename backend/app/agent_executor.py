@@ -4,6 +4,7 @@ Real A2A: callers send a Message containing a DataPart whose `data` is
 `{"patient": str, "medicine": str}`. No free-form parsing, no fallbacks.
 """
 
+import asyncio
 import logging
 from typing import Any
 
@@ -103,7 +104,14 @@ class MedicationAgentExecutor(AgentExecutor):
                 ),
             )
 
-            result = self.medication_agent.execute(patient, medicine, mode="auto")
+            # Offload the blocking LangGraph run to a thread so we don't pin
+            # the event loop for the entire delivery (minutes). Without this,
+            # the server cannot serve any other request — including the
+            # dashboard introspection or a competing A2A call — until the
+            # workflow finishes.
+            result = await asyncio.to_thread(
+                self.medication_agent.execute, patient, medicine, mode="auto"
+            )
 
             structured = {
                 "task_status": result.get("task_status"),

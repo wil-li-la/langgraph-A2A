@@ -20,7 +20,13 @@ from cure.skills.navigate import navigate_skill
 from app.skills.browser_input import browser_input_skill
 from app.healthcare.mock_data import MockDatabase, MockRobotActions
 
-update_config(Config.from_yaml("./cure/config.yaml"))
+# Locate cure/config.yaml without depending on the current working directory.
+# Falls back to the original cwd-relative path so scripts that already chdir
+# to backend/ keep working.
+_CURE_CONFIG_FILE = Path(__file__).resolve().parent.parent.parent / "cure" / "config.yaml"
+if not _CURE_CONFIG_FILE.is_file():
+    _CURE_CONFIG_FILE = Path("./cure/config.yaml")
+update_config(Config.from_yaml(str(_CURE_CONFIG_FILE)))
 
 logger = logging.getLogger(__name__)
 

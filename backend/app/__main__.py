@@ -31,6 +31,7 @@ try:
 except ImportError:
     pass  # python-dotenv not installed, that's fine in production
 
+from app.agent_api import agent_routes
 from app.agent_executor import MedicationAgentExecutor
 from app.teleop_api import teleop_websocket
 from app.workflow_api import workflow_routes
@@ -48,17 +49,26 @@ def validate_environment():
     """Validate required environment variables and log configuration."""
     model_source = os.getenv('model_source', 'google')
     port = os.getenv('PORT', '9999')
-    
+    llm_provider = os.getenv('LLM_PROVIDER', 'none').lower()
+
     # Log environment configuration for debugging
     logger.info(f"Environment Configuration:")
     logger.info(f"  - PORT: {port}")
-    logger.info(f"  - model_source: {model_source}")
-    logger.info(f"  - GOOGLE_API_KEY: {'[SET]' if os.getenv('GOOGLE_API_KEY') else '[NOT SET]'}")
-    logger.info(f"  - OPENAI_API_KEY: {'[SET]' if os.getenv('OPENAI_API_KEY') else '[NOT SET]'}")
-    
-    # Note: API keys are optional for medication delivery demo with mock data
-    # Validate only if you plan to use LLM for NLU parsing
-    
+    logger.info(f"  - LLM_PROVIDER: {llm_provider}")
+    if llm_provider == 'ollama':
+        logger.info(f"  - OLLAMA_HOST: {os.getenv('OLLAMA_HOST', 'http://localhost:11434')}")
+        logger.info(f"  - OLLAMA_MODEL: {os.getenv('OLLAMA_MODEL', 'qwen3:4b')}")
+    elif llm_provider == 'openai':
+        logger.info(f"  - OPENAI_API_KEY: {'[SET]' if os.getenv('OPENAI_API_KEY') else '[NOT SET]'}")
+    elif llm_provider == 'google':
+        logger.info(f"  - GOOGLE_API_KEY: {'[SET]' if os.getenv('GOOGLE_API_KEY') else '[NOT SET]'}")
+    elif llm_provider == 'anthropic':
+        logger.info(f"  - ANTHROPIC_API_KEY: {'[SET]' if os.getenv('ANTHROPIC_API_KEY') else '[NOT SET]'}")
+    logger.info(f"  - model_source (legacy): {model_source}")
+
+    # Note: API keys are optional. With LLM_PROVIDER=none the system runs on
+    # the keyword-based NLU and scripted workflow exactly as before.
+
     return model_source
 
 
@@ -155,8 +165,12 @@ def main(host: str, port: int):
         # Build the base Starlette app and add workflow API routes + CORS
         starlette_app = server.build()
         
-        # Mount workflow API routes
+        # Mount workflow API routes (legacy scripted path)
         for route in workflow_routes:
+            starlette_app.routes.insert(0, route)
+
+        # Mount agent API routes (LLM-driven path; opt-in via LLM_PROVIDER)
+        for route in agent_routes:
             starlette_app.routes.insert(0, route)
 
         # Mount teleop WebSocket relay
@@ -175,6 +189,7 @@ def main(host: str, port: int):
         logger.info(f'Agent card: {public_url}/.well-known/agent-card.json')
         logger.info(f'A2A JSON-RPC endpoint: POST {public_url}/')
         logger.info(f'Dashboard workflow API: {public_url}/api/workflow')
+        logger.info(f'Agent API (LLM-driven): {public_url}/api/agent/info')
         logger.info(f'Teleop WebSocket relay: {public_url}/ws/teleop')
         
         # Run the server

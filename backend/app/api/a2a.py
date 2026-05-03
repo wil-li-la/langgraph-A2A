@@ -23,7 +23,7 @@ from a2a.types import (
 from a2a.utils import new_agent_text_message, new_task
 from a2a.utils.errors import ServerError
 
-from app.healthcare import MedicationDeliveryAgent
+from app.workflows.medication_delivery import MedicationDeliveryAgent
 
 
 logger = logging.getLogger(__name__)

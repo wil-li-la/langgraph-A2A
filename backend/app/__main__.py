@@ -31,10 +31,10 @@ try:
 except ImportError:
     pass  # python-dotenv not installed, that's fine in production
 
-from app.agent_api import agent_routes
-from app.agent_executor import MedicationAgentExecutor
-from app.teleop_api import teleop_websocket
-from app.workflow_api import workflow_routes
+from app.api.a2a import MedicationAgentExecutor
+from app.api.agent import agent_routes
+from app.api.teleop import teleop_websocket
+from app.api.workflow import workflow_routes
 
 
 logging.basicConfig(level=logging.INFO)

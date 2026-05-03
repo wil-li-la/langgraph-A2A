@@ -62,7 +62,7 @@ docker-compose up -d
 - **`tools/cure_tools.py`** — LangChain `@tool` wrappers around the CURE skills used by the agent. Honors a `RobotGuard` for preconditions and budget; honors `DRY_RUN=1` env to bypass hardware while logging validation criteria.
 - **`safety/guard.py`** — `RobotGuard` enforced outside the LLM (preconditions + per-task tool-call budget), scoped per-task via contextvars.
 - **`llm/factory.py`** — Provider factory: `LLM_PROVIDER` env picks `none|ollama|openai|google|anthropic`. Default `none` keeps the LLM-driven path off and the scripted workflow byte-identical.
-- **`healthcare/mock_data.py`** — Mock patient/medication database + MockNLU (LLM-first via `app.llm`, falls back to bilingual Chinese/English keyword matching when the LLM is disabled).
+- **`mock_data.py`** — Mock patient/medication database + MockNLU (LLM-first via `app.llm`, falls back to bilingual Chinese/English keyword matching when the LLM is disabled).
 
 ### A2A Protocol
 

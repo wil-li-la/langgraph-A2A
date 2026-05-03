@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from typing import Iterator
 
 # Attaching to the root logger is sufficient: Python logging propagates
-# records from every child to the root by default. `app.healthcare.*` and
+# records from every child to the root by default. `app.workflows.*` and
 # `cure.skills.*` both propagate (see _setup_cure_loggers in
 # medication_delivery.py — it does not set propagate=False). Attaching to
 # children as well would duplicate every record.

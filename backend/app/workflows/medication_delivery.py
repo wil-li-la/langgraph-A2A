@@ -18,7 +18,7 @@ from cure.skills.handover import handover_skill
 from cure.skills.navigate import navigate_skill
 
 from app.skills.browser_input import browser_input_skill
-from app.healthcare.mock_data import MockDatabase, MockRobotActions
+from app.mock_data import MockDatabase, MockRobotActions
 
 # Locate cure/config.yaml without depending on the current working directory.
 # Falls back to the original cwd-relative path so scripts that already chdir
@@ -720,7 +720,7 @@ if __name__ == "__main__":
     if len(argv_args) >= 2:
         p_name, m_name = argv_args[0], argv_args[1]
     else:
-        logger.info("使用範例指令，您也可以用: python -m app.healthcare.medication_delivery <病患> <藥物>")
+        logger.info("使用範例指令，您也可以用: python -m app.workflows.medication_delivery <病患> <藥物>")
         p_name, m_name = examples[0]
 
     if dry_run:

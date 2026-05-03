@@ -1,6 +1,6 @@
 """Agentic (LLM-driven) workflows.
 
-Lives alongside the legacy scripted workflow at app.healthcare.medication_delivery.
+Lives alongside the legacy scripted workflow at app.workflows.medication_delivery.
 Both are valid execution paths and the dashboard chooses between them via mode toggle.
 """
 

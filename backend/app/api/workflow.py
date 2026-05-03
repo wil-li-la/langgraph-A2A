@@ -29,7 +29,7 @@ from app.workflows.medication_delivery import (
     _stop_requests,
     _VALID_RESUME_NODES,
 )
-from app.healthcare.mock_data import MockNLU
+from app.mock_data import MockNLU
 from app.skills.browser_input import (
     deliver_input,
     register_request_handler,

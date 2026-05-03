@@ -1,6 +1,6 @@
 """Generalist ReAct agent that composes cure robot skills via LLM tool-use.
 
-Unlike the scripted MedicationDeliveryAgent (app.healthcare.medication_delivery)
+Unlike the scripted MedicationDeliveryAgent (app.workflows.medication_delivery)
 which executes a fixed 9-node DAG, this agent receives a free-form natural
 language task ("fetch my water bottle", "deliver aspirin to Mr. Wang") and
 chooses tool calls itself.

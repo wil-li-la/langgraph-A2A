@@ -1,6 +1,8 @@
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
+import { AgentProvider } from '@/contexts/agent-context'
 import { RobotConnectionProvider } from '@/contexts/robot-connection'
+import { UIModeProvider } from '@/contexts/ui-mode-context'
 import { WorkflowProvider } from '@/contexts/workflow-context'
 
 import './globals.css'
@@ -22,11 +24,15 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className="font-sans antialiased">
-        <RobotConnectionProvider>
-          <WorkflowProvider>
-            {children}
-          </WorkflowProvider>
-        </RobotConnectionProvider>
+        <UIModeProvider>
+          <RobotConnectionProvider>
+            <WorkflowProvider>
+              <AgentProvider>
+                {children}
+              </AgentProvider>
+            </WorkflowProvider>
+          </RobotConnectionProvider>
+        </UIModeProvider>
       </body>
     </html>
   )

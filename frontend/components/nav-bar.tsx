@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useRobotConnection } from "@/contexts/robot-connection"
+import { ModeToggle } from "@/components/mode-toggle"
 import type { WorkflowState } from "@/hooks/use-workflow"
 
 const NAV_ITEMS = [
@@ -80,8 +81,17 @@ export function NavBar({ workflowState = "idle" }: NavBarProps) {
           )}
         </div>
 
+        {/* Mode toggle (Scripted | Agentic). Locked while a workflow is running so
+            the active context isn't yanked out from under it. */}
+        <div className="ml-auto flex items-center gap-3">
+          <ModeToggle
+            disabled={workflowState !== "idle"}
+            disabledReason="Stop the workflow to switch modes"
+          />
+        </div>
+
         {/* Nav links */}
-        <nav className="ml-auto flex gap-1">
+        <nav className="flex gap-1">
           {NAV_ITEMS.map((item) => {
             const isActive = pathname === item.href;
             const locked = item.href === "/teleop" && teleopLocked

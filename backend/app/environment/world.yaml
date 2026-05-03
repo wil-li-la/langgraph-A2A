@@ -1,0 +1,38 @@
+# Initial world catalog loaded by EnvironmentStore at startup.
+#
+# This file is the Layer 1 knowledge base — see
+# docs/superpowers/specs/2026-05-03-environment-state-design.md.
+#
+# Entries here mirror what app/tools/world_model.py currently hardcodes.
+# When the env store is wired in (Phase 1+), tools/world_model.py is
+# expected to delete and tools will read from this catalog instead.
+#
+# `people:` is intentionally empty so the relaxed allow-list behavior
+# (any patient name accepted) holds until real face/identity data lands.
+
+version: "1"
+
+locations:
+  pharmacy:
+    friendly_name: pharmacy
+    cure_target: medicine
+    description: the medication storage shelf area
+  patient_room:
+    friendly_name: patient_room
+    cure_target: patient
+    description: the current patient's bedside
+  charging_dock:
+    friendly_name: charging_dock
+    cure_target: origin
+    description: the robot's home / charging position
+
+graspable:
+  medicine:
+    friendly_name: medicine
+    cure_target: medicine
+    aliases:
+      - medication
+      - pill
+      - pills
+
+people: {}

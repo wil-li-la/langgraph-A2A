@@ -16,7 +16,7 @@ pip install -e .
 python -m app --host localhost --port 9999
 
 # Test workflow directly (bypasses A2A)
-python -m app.healthcare.medication_delivery 張小明 阿斯匹靈
+python -m app.workflows.medication_delivery 張小明 阿斯匹靈
 ```
 
 Required env vars (copy from `.env.example`):
@@ -45,15 +45,24 @@ docker-compose up -d
 ### Backend (`backend/app/`)
 
 - **`__main__.py`** — CLI entry point. Builds the AgentCard, wires A2AStarletteApplication with DefaultRequestHandler, adds workflow REST routes, starts Uvicorn.
-- **`agent_executor.py`** — Bridges A2A protocol to LangGraph. `execute()` parses instructions via MockNLU (with regex fallback + hardcoded defaults), runs `MedicationDeliveryAgent` in `mode="auto"`, returns artifacts. Special-cases capability query strings (Chinese/English).
-- **`workflow_api.py`** — REST endpoints for the dashboard and A2A callers:
+- **`api/a2a.py`** — Bridges A2A protocol to LangGraph. `execute()` parses instructions via MockNLU (with regex fallback + hardcoded defaults), runs `MedicationDeliveryAgent` in `mode="auto"`, returns artifacts. Special-cases capability query strings (Chinese/English). The blocking workflow run is offloaded via `asyncio.to_thread` so the event loop stays free.
+- **`api/workflow.py`** — REST endpoints for the dashboard and A2A callers:
   - `GET /api/workflow` — graph structure (nodes + edges)
   - `POST /api/workflow/execute` — one-shot execution (manual mode, uses MockNLU)
   - `POST /api/workflow/execute/stream` — SSE streaming (node_start, node_end, log, done, error)
   - `POST /api/a2a/execute` — the A2A endpoint, body `{"patient": str, "medicine": str}`, skips NLU parsing, runs in auto mode. This is the only endpoint A2A callers should use.
-- **`camera_api.py`** — Video streaming endpoints for robot cameras (D405, D435if).
-- **`healthcare/medication_delivery.py`** — The LangGraph `StateGraph`. 9 nodes (confirm_task → navigate_to_pharmacy → pickup_medication → navigate_to_patient → deliver → check_patient_identity → return_to_origin, with error_handler). Uses CURE robot skills (grasp, navigate, speak, listen, handover). Logs execution to Rerun.
-- **`healthcare/mock_data.py`** — Mock patient/medication database + MockNLU (bilingual Chinese/English pattern matching).
+- **`api/agent.py`** — REST/SSE endpoints for the LLM-driven agentic path:
+  - `GET /api/agent/info` — what tools the agent has, which LLM, availability
+  - `POST /api/agent/execute` — one-shot agent run, body `{"task": str, "budget"?: int}`
+  - `POST /api/agent/execute/stream` — SSE: `started`, `agent_message`, `tool_call`, `tool_result`, `log`, `done`, `error`
+- **`api/camera.py`** — Video streaming endpoints for robot cameras (D405, D435if).
+- **`api/teleop.py`** — WebSocket relay for direct teleoperation.
+- **`workflows/medication_delivery.py`** — The LangGraph `StateGraph`. 9 nodes (confirm_task → navigate_to_pharmacy → pickup_medication → navigate_to_patient → deliver → check_patient_identity → return_to_origin, with error_handler). Uses CURE robot skills (grasp, navigate, speak, listen, handover). Logs execution to Rerun. Hand-written DAG; node order is fixed at compile time.
+- **`agents/delivery_agent.py`** — Generalist ReAct agent built with `langgraph.prebuilt.create_react_agent`. Same skills, different control: the LLM picks tool calls per turn instead of following a fixed DAG.
+- **`tools/cure_tools.py`** — LangChain `@tool` wrappers around the CURE skills used by the agent. Honors a `RobotGuard` for preconditions and budget; honors `DRY_RUN=1` env to bypass hardware while logging validation criteria.
+- **`safety/guard.py`** — `RobotGuard` enforced outside the LLM (preconditions + per-task tool-call budget), scoped per-task via contextvars.
+- **`llm/factory.py`** — Provider factory: `LLM_PROVIDER` env picks `none|ollama|openai|google|anthropic`. Default `none` keeps the LLM-driven path off and the scripted workflow byte-identical.
+- **`mock_data.py`** — Mock patient/medication database + MockNLU (LLM-first via `app.llm`, falls back to bilingual Chinese/English keyword matching when the LLM is disabled).
 
 ### A2A Protocol
 

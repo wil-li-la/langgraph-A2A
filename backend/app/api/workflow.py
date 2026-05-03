@@ -12,7 +12,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 
-from app.camera_api import (
+from app.api.camera import (
     stream_d405_rgb,
     stream_d405_depth,
     stream_d405_mix,
@@ -22,14 +22,14 @@ from app.camera_api import (
 )
 
 from app.common.sse_log_bridge import bridge_logs_to_queue
-from app.healthcare.medication_delivery import (
+from app.workflows.medication_delivery import (
     MedicationDeliveryAgent,
     create_medication_delivery_workflow,
     _paused_sessions,
     _stop_requests,
     _VALID_RESUME_NODES,
 )
-from app.healthcare.mock_data import MockNLU
+from app.mock_data import MockNLU
 from app.skills.browser_input import (
     deliver_input,
     register_request_handler,

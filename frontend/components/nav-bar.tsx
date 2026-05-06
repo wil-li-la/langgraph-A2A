@@ -9,6 +9,9 @@ import type { WorkflowState } from "@/hooks/use-workflow"
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
   { href: "/teleop", label: "Teleop" },
+  { href: "/nav", label: "Map Nav" },
+  { href: "/viz", label: "Visualization" },
+  { href: "/cameras", label: "Room Cameras" },
 ] as const;
 
 interface NavBarProps {

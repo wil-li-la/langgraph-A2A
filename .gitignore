@@ -39,3 +39,6 @@ backend/.venv/
 *.rrd
 # Local clone of private cure repo (install via pip per CLAUDE.md)
 backend/cure/
+
+# Claude Code agent state
+.claude/

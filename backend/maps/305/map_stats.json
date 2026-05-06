@@ -1,0 +1,28 @@
+{
+  "n_vertex": 3385128,
+  "alpha_gate": 0.1,
+  "floor_z": -0.9963150143623352,
+  "slab": [
+    0.3,
+    1.8
+  ],
+  "density_threshold": 1,
+  "resolution_m": 0.006,
+  "padding_m": 0.3,
+  "grid_size_px": [
+    2059,
+    1259
+  ],
+  "world_to_map_rotation_deg": 161.0037612915039,
+  "world_to_map_pivot_xy": [
+    -0.04947328567504883,
+    -1.1679987907409668
+  ],
+  "map_origin_in_map_frame": [
+    -6.047965233325958,
+    -4.643895895481109
+  ],
+  "occupied_cells": 703972,
+  "free_cells": 1552867,
+  "unknown_cells": 341538
+}

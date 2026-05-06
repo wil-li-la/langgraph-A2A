@@ -86,9 +86,9 @@ export interface NavPathPoint {
 
 export const MAP_CONFIG = {
   imageUrl: "/maps/305_map.png",
-  resolution: 0.05,
-  originX: -7.99,
-  originY: -3.23,
-  width: 250,
-  height: 183,
+  resolution: 0.006,
+  originX: -6.048,
+  originY: -4.6439,
+  width: 2059,
+  height: 1259,
 } as const;

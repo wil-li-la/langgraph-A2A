@@ -10,19 +10,26 @@ from typing import Annotated, Generator, List, Tuple, TypedDict
 
 from langgraph.graph import StateGraph, END
 
+# Drop-in replacements for cure's navigate/handover/speak/listen — these now
+# talk to the stretch3-zmq driver directly. Only grasp_skill still comes from
+# cure (heavy ArUco + IK + RGBD pipeline); when grasp is replaced (VLA or
+# step-breakdown) the cure dep can be removed entirely.
 from cure.skills.grasp import grasp_skill
 from cure.config import update_config, Config
-from cure.skills.listen import listen_skill
-from cure.skills.speak import speak_skill, wait_for_speech_completion
-from cure.skills.handover import handover_skill
-from cure.skills.navigate import navigate_skill
+from app.tools.stretch_tools import (
+    navigate_skill,
+    handover_skill,
+    speak_skill,
+    wait_for_speech_completion,
+    listen_skill,
+)
 
 from app.skills.browser_input import browser_input_skill
 from app.mock_data import MockDatabase
 
-# Locate cure/config.yaml without depending on the current working directory.
-# Falls back to the original cwd-relative path so scripts that already chdir
-# to backend/ keep working.
+# cure.skills.grasp still reads from cure.config — so we keep loading the
+# yaml into cure's global config too. stretch_tools loads the same file via
+# its own (smaller) loader.
 _CURE_CONFIG_FILE = Path(__file__).resolve().parent.parent.parent / "cure" / "config.yaml"
 if not _CURE_CONFIG_FILE.is_file():
     _CURE_CONFIG_FILE = Path("./cure/config.yaml")
@@ -66,18 +73,18 @@ class AgentState(TypedDict):
 # --- Helper ---
 
 def _setup_cure_loggers():
-    """Ensure all cure skill loggers also write to rerun 'workflow/log'.
+    """Ensure all skill loggers also write to rerun 'workflow/log'.
 
-    cure's setup_skill_logger() may have already added handlers (e.g. its own
-    rr.LoggingHandler("logs")), so we cannot rely on `if not handlers`.
-    Instead we use a sentinel attribute to avoid double-adding our handler.
+    cure.skills.grasp's setup_skill_logger() may have already added handlers
+    (its own rr.LoggingHandler("logs")), so we cannot rely on `if not handlers`.
+    A sentinel attribute avoids double-adding our handler.
+
+    Name kept for backwards compatibility; it now patches both cure.skills.grasp
+    (still in use) and app.tools.stretch_tools (the new direct-ZMQ skills).
     """
     skills_to_patch = [
         "cure.skills.grasp",
-        "cure.skills.listen",
-        "cure.skills.speak",
-        "cure.skills.handover",
-        "cure.skills.navigate",
+        "app.tools.stretch_tools",
     ]
     for skill in skills_to_patch:
         skill_logger = logging.getLogger(skill)

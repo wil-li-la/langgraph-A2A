@@ -9,13 +9,25 @@ Next.js dashboard for visualizing and controlling the medication delivery robot 
 - **Tailwind CSS** + **shadcn/ui**
 - **pnpm**
 
-## Development
+## Production deployment
+
+Hosted on **Cloudflare Pages** as a static export (`output: 'export'` + `images: { unoptimized: true }` in `next.config.mjs`). Pages auto-builds `frontend/` on every push to `main` — `pnpm build` produces a static `out/` folder that Pages serves 24/7. There is no Node runtime in production.
+
+Pages project env vars (baked into the build):
+
+- `NEXT_PUBLIC_API_URL=https://stretch-api.your-domain.com` — Cloudflare-tunneled backend
+
+`NEXT_PUBLIC_ROBOT_HOST` is optional — when unset, the Robot IP input pre-fills with the hardcoded lab default `192.168.1.38` (see `contexts/robot-connection.tsx`). Set it only to override the default for a different deployment. Robot connection is still an optional add-on — the user has to click Connect.
+
+The dashboard has zero server-side features (no API routes, no SSR), so the static export loses nothing.
+
+## Local development
 
 ```bash
 cp .env.example .env.local   # set NEXT_PUBLIC_API_URL
 pnpm install
 pnpm dev          # http://localhost:3000
-pnpm build
+pnpm build        # produces ./out (same artifact Cloudflare Pages publishes)
 pnpm lint         # ESLint + TypeScript
 ```
 
@@ -25,7 +37,7 @@ pnpm lint         # ESLint + TypeScript
 - `http://192.168.1.X:9999` — LAN (no HTTPS; mic APIs disabled on other devices)
 - `https://stretch-api.your-domain.com` — via Cloudflare Tunnel (mic works on iPad/phone)
 
-For tunnel setup see the root [README](../README.md#remote-access-via-cloudflare-tunnel).
+For backend tunnel setup see the root [README](../README.md#cloudflare-tunnel-setup-backend-exposure).
 
 ## Dashboard state machine
 

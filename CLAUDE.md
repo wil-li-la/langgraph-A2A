@@ -27,18 +27,33 @@ Required env vars (copy from `.env.example`):
 ```bash
 cd frontend
 pnpm install
-pnpm dev          # http://localhost:3000 (Turbo)
-pnpm build
+pnpm dev          # http://localhost:3000 (Turbo) — local dev only
+pnpm build        # produces static out/ (output: 'export')
 pnpm lint         # ESLint + TypeScript
 ```
 
 Frontend connects to backend via `NEXT_PUBLIC_API_URL` (defaults to `http://localhost:9999`).
 
-### Docker (both services)
+### Production deployment
+
+- **Frontend**: hosted on **Cloudflare Pages** as a static export (24/7, no laptop uptime needed). `next.config.mjs` has `output: 'export'`. Pages auto-builds `frontend/` on every push to `main`. `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_ROBOT_HOST`, and `NEXT_PUBLIC_ROOM_CAMERAS_URL` are set in the Pages project's env vars and baked at build time.
+- **Backend**: runs on the lab laptop and is exposed via **Cloudflare Tunnel** at `stretch-api.<domain>`. Daily run is two terminals: `cloudflared tunnel run …` + `python -m app`. See root README for tunnel config.
+- Docker has been removed (no Dockerfiles, no compose) — use the venv install path in `backend/INSTALL.md`.
+
+### Room cameras (ROS2 → MJPEG bridge)
+
+The ED305 lab has 16 overhead Basler cameras published as ROS2 `sensor_msgs/CompressedImage` topics by [`ED305_pylon_viewer`](https://github.com/chen1328/ED305_pylon_viewer) (`ros2_node` branch). To surface them in the dashboard *without* polluting the backend venv, there is an isolated sidecar at `backend/room_cameras/` that runs under the system Python ROS2 ships (Python 3.10) and re-serves each topic as MJPEG over HTTP.
+
 ```bash
-cp backend/.env.example backend/.env  # fill in API keys
-docker-compose up -d
+# one-time: install ROS2 humble + topic discovery
+bash /tmp/ED305_pylon_viewer/scripts/install_ros2.sh
+
+# run the bridge (sources /opt/ros/humble/setup.bash itself)
+cd backend/room_cameras
+./run_bridge.sh                        # 0.0.0.0:9997, both sides, 8 cams/side
 ```
+
+Endpoints: `GET /` mosaic, `GET /cam/<side>/<idx>` MJPEG, `GET /healthz` topic list. Frontend reads `NEXT_PUBLIC_ROOM_CAMERAS_URL` and renders the grid at `/cameras`. Bridge is decoupled from the backend (separate process, separate Python, separate port) — stopping it does not affect A2A or workflow paths. See `backend/room_cameras/README.md` for QoS/`ROS_DOMAIN_ID` notes.
 
 ## Architecture
 
@@ -154,8 +169,8 @@ Mac-side `navigate_avoidance` in `cure/src/cure/skills/navigate.py` already send
 
 ### Key Config Notes
 
-- Backend Dockerfile: port 9999, non-root user `appuser`
-- Frontend Dockerfile: port 3000, Next.js standalone output
+- Backend serves on port 9999 (set via `--port` flag or `PORT` env var)
+- Frontend builds to a static `out/` folder via `output: 'export'` and is served by Cloudflare Pages — no Node runtime in production
 - `next.config.mjs` has `typescript: { ignoreBuildErrors: true }` — TypeScript errors don't block builds
+- `next.config.mjs` has `images: { unoptimized: true }` — required for static export
 - No test framework is configured; verification is manual/integration only
-- Docker requires docker group membership: `sudo usermod -aG docker $USER && newgrp docker`

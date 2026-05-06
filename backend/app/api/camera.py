@@ -7,8 +7,7 @@ from starlette.requests import Request
 from starlette.responses import StreamingResponse
 
 from stretch3_zmq.core.messages.protocol import decode_with_timestamp
-from cure.config import get_config
-from cure.constants import SERVER_IP
+from app.tools.stretch_tools import get_config, SERVER_IP
 
 logger = logging.getLogger(__name__)
 
@@ -179,29 +178,29 @@ async def mix_mjpeg_generator(port: int):
 async def stream_d405_rgb(request: Request) -> StreamingResponse:
     """GET /api/stream/d405/rgb"""
     cfg = get_config()
-    return StreamingResponse(mjpeg_generator(cfg.ports.d405, "rgb"), media_type="multipart/x-mixed-replace; boundary=frame")
+    return StreamingResponse(mjpeg_generator(cfg.ports["d405"], "rgb"), media_type="multipart/x-mixed-replace; boundary=frame")
 
 async def stream_d405_depth(request: Request) -> StreamingResponse:
     """GET /api/stream/d405/depth"""
     cfg = get_config()
-    return StreamingResponse(mjpeg_generator(cfg.ports.d405, "depth"), media_type="multipart/x-mixed-replace; boundary=frame")
+    return StreamingResponse(mjpeg_generator(cfg.ports["d405"], "depth"), media_type="multipart/x-mixed-replace; boundary=frame")
 
 async def stream_d405_mix(request: Request) -> StreamingResponse:
     """GET /api/stream/d405/mix"""
     cfg = get_config()
-    return StreamingResponse(mix_mjpeg_generator(cfg.ports.d405), media_type="multipart/x-mixed-replace; boundary=frame")
+    return StreamingResponse(mix_mjpeg_generator(cfg.ports["d405"]), media_type="multipart/x-mixed-replace; boundary=frame")
 
 async def stream_d435if_rgb(request: Request) -> StreamingResponse:
     """GET /api/stream/d435if/rgb"""
     cfg = get_config()
-    return StreamingResponse(mjpeg_generator(cfg.ports.d435if, "rgb"), media_type="multipart/x-mixed-replace; boundary=frame")
+    return StreamingResponse(mjpeg_generator(cfg.ports["d435if"], "rgb"), media_type="multipart/x-mixed-replace; boundary=frame")
 
 async def stream_d435if_depth(request: Request) -> StreamingResponse:
     """GET /api/stream/d435if/depth"""
     cfg = get_config()
-    return StreamingResponse(mjpeg_generator(cfg.ports.d435if, "depth"), media_type="multipart/x-mixed-replace; boundary=frame")
+    return StreamingResponse(mjpeg_generator(cfg.ports["d435if"], "depth"), media_type="multipart/x-mixed-replace; boundary=frame")
 
 async def stream_d435if_mix(request: Request) -> StreamingResponse:
     """GET /api/stream/d435if/mix"""
     cfg = get_config()
-    return StreamingResponse(mix_mjpeg_generator(cfg.ports.d435if), media_type="multipart/x-mixed-replace; boundary=frame")
+    return StreamingResponse(mix_mjpeg_generator(cfg.ports["d435if"]), media_type="multipart/x-mixed-replace; boundary=frame")

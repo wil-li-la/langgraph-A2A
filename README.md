@@ -4,13 +4,16 @@ A **medication delivery robot** system built as a monorepo with a Python backend
 
 ```
 ├── backend/     Python LangGraph A2A agent server (Python 3.12)
-├── frontend/    Next.js Robot Task Dashboard (Node 20 + pnpm)
-└── docker-compose.yml
+└── frontend/    Next.js Robot Task Dashboard (Node 20 + pnpm) — static export, hosted on Cloudflare Pages
 ```
 
-## Quick Start
+## Deployment topology
 
-### Backend
+- **Frontend** — hosted 24/7 on **Cloudflare Pages** as a static export (`output: 'export'` in `next.config.mjs`). Auto-builds on every push to `main`. Has zero server-side features, so no laptop uptime is required to serve the dashboard.
+- **Backend** — runs on the lab laptop, port `9999`. Exposed publicly via a **Cloudflare Tunnel** at `stretch-api.<your-domain>`. The Pages-built dashboard hits this URL via `NEXT_PUBLIC_API_URL` (baked into the build).
+- **Robot connection** — optional add-on. The dashboard's Robot IP input pre-fills with the lab robot's LAN IP (`192.168.1.38`) but the user still has to click Connect — workflow display itself does not require a robot.
+
+## Local development (backend only)
 
 ```bash
 cd backend
@@ -28,25 +31,17 @@ Required env vars — copy from `.env.example` and fill in:
 model_source=google          # or openai
 GOOGLE_API_KEY=your_key      # if model_source=google
 OPENAI_API_KEY=your_key      # if model_source=openai
+ROBOT_IP=<robot-lan-ip>      # passed to cure skills
+PUBLIC_URL=https://stretch-api.your-domain.com   # advertised in AgentCard
 ```
 
 See [backend/INSTALL.md](./backend/INSTALL.md) for full install instructions (including the `cure` and `stretch3-zmq` private dependencies).
 
-### Frontend
+For local frontend development against this backend, see [frontend/README.md](./frontend/README.md). The deployed Pages build does **not** depend on running `pnpm dev` locally.
 
-```bash
-cd frontend
-cp .env.example .env.local   # set NEXT_PUBLIC_API_URL (see below)
-pnpm install
-pnpm dev
-# Open http://localhost:3000
-```
+## Cloudflare Tunnel setup (backend exposure)
 
-The dashboard reads `NEXT_PUBLIC_API_URL` at dev-server startup (empty → defaults to `http://localhost:9999`). For remote iPad / mobile access with a working microphone, see **Remote Access** below.
-
-## Remote Access via Cloudflare Tunnel
-
-Accessing the dashboard from an iPad or phone on the same LAN over plain HTTP works, but iOS Safari gates `webkitSpeechRecognition` and `getUserMedia` behind a secure context — you'll see `No mic`. Serving the dashboard via a Cloudflare Tunnel gives you HTTPS without a self-signed cert, so the mic and voice input work on any device.
+Required so the production Pages dashboard (and any iPad/phone) can reach the backend over HTTPS — and so iOS Safari's `webkitSpeechRecognition` / `getUserMedia` work (both gated behind a secure context).
 
 Requires a Cloudflare account + a domain managed on Cloudflare.
 
@@ -61,8 +56,7 @@ cloudflared tunnel login               # opens browser; select your domain
 cloudflared tunnel create robot-dev-mac
 # → writes ~/.cloudflared/<tunnel-id>.json
 
-# 3. Route two hostnames to this tunnel
-cloudflared tunnel route dns robot-dev-mac stretch-dashboard.your-domain.com
+# 3. Route the API hostname to this tunnel
 cloudflared tunnel route dns robot-dev-mac stretch-api.your-domain.com
 ```
 
@@ -74,8 +68,6 @@ credentials-file: /Users/<you>/.cloudflared/<your-tunnel-id>.json
 edge-ip-version: "4"                   # force IPv4 if your IPv6 is flaky
 
 ingress:
-  - hostname: stretch-dashboard.your-domain.com
-    service: http://localhost:3000
   - hostname: stretch-api.your-domain.com
     service: http://localhost:9999
     originRequest:
@@ -85,13 +77,15 @@ ingress:
   - service: http_status:404
 ```
 
-Set `frontend/.env.local`:
+The dashboard hostname (e.g. `stretch-dashboard.your-domain.com`) is **not** in this config — Cloudflare Pages serves it directly. Set the Pages project's environment variables:
 
 ```
 NEXT_PUBLIC_API_URL=https://stretch-api.your-domain.com
 ```
 
-### Daily run (three terminals)
+`NEXT_PUBLIC_ROBOT_HOST` is optional — if unset, the dashboard pre-fills the Robot IP input with the lab default (`192.168.1.38`). Set it explicitly only to override that default for a different deployment.
+
+### Daily run (two terminals on the laptop)
 
 ```bash
 # Terminal 1 — tunnel
@@ -99,12 +93,9 @@ cloudflared tunnel run robot-dev-mac
 
 # Terminal 2 — backend
 cd backend && source .venv/bin/activate && python -m app --host localhost --port 9999
-
-# Terminal 3 — frontend
-cd frontend && pnpm dev
 ```
 
-Then on your iPad/phone: open `https://stretch-dashboard.your-domain.com`.
+That's it. The frontend is already live on Pages.
 
 > **Note:** Cloudflare's free plan has a ~100 s idle-connection timeout. Our SSE workflow stream emits events frequently enough that this rarely matters; if a long-running node goes silent for >100 s the stream will drop and the paused/resume flow can recover it.
 

@@ -3,7 +3,6 @@
 import asyncio
 import json
 import logging
-import pkgutil
 import threading
 import uuid
 from typing import AsyncGenerator
@@ -35,7 +34,6 @@ from app.skills.browser_input import (
     register_request_handler,
     unregister_request_handler,
 )
-import cure.skills
 
 logger = logging.getLogger(__name__)
 
@@ -669,11 +667,16 @@ async def reset_workflow_stream(request: Request) -> StreamingResponse:
 
 
 async def get_skills(request: Request) -> JSONResponse:
-    """Return available skills dynamically loaded from cure package and required task skills."""
+    """Return the skills the medication-delivery workflow uses.
+
+    Five live in app.tools.stretch_tools (direct ZMQ to the stretch3-zmq driver);
+    grasp still comes from the cure package pending its replacement (VLA or
+    decomposed steps).
+    """
     try:
-        available = [name for _, name, _ in pkgutil.iter_modules(cure.skills.__path__)]
+        available = ["navigate", "handover", "speak", "listen", "grasp"]
         required = ["grasp", "listen", "speak", "handover", "navigate"]
-        
+
         return JSONResponse({
             "available": available,
             "required": required

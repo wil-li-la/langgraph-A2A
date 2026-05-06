@@ -20,7 +20,7 @@ interface RobotConnectionContextValue {
 
 const RobotConnectionContext = createContext<RobotConnectionContextValue | null>(null)
 
-const DEFAULT_ROBOT_HOST = process.env.NEXT_PUBLIC_ROBOT_HOST ?? ""
+const DEFAULT_ROBOT_HOST = process.env.NEXT_PUBLIC_ROBOT_HOST ?? "192.168.1.38"
 
 export function RobotConnectionProvider({ children }: { children: ReactNode }) {
   const [robotHost, setRobotHost] = useState(DEFAULT_ROBOT_HOST)

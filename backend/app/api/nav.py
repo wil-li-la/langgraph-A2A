@@ -77,7 +77,30 @@ _task: NavTask = NavTask(
     status=None, reason="", started_ms=0, finished_ms=None,
     final_pose=None,
 )
+# Teleop is "active" while a browser holds an open /ws/teleop connection.
+# The nav goto endpoint rejects goals while teleop is active, and the SSE
+# stream surfaces this so the dashboard's /viz / /nav / /teleop pages can
+# arbitrate UI state. See backend/app/api/teleop.py for the setter calls.
+_teleop_active: bool = False
 _state_event = asyncio.Event()
+
+
+def set_teleop_active(active: bool) -> None:
+    """Called by /ws/teleop on connect / disconnect."""
+    global _teleop_active
+    if _teleop_active == active:
+        return
+    _teleop_active = active
+    logger.info("teleop_active → %s", active)
+    _bump()
+
+
+def is_teleop_active() -> bool:
+    return _teleop_active
+
+
+def is_nav_in_flight() -> bool:
+    return _task.state in ("pending", "running")
 
 
 def _bump():
@@ -201,6 +224,12 @@ async def post_goto(request: Request):
             {"error": f"nav already {_task.state}", "request_id": _task.request_id},
             status_code=409,
         )
+    if _teleop_active:
+        return JSONResponse(
+            {"error": "teleop is driving the robot — nav locked",
+             "control_owner": "teleop"},
+            status_code=409,
+        )
 
     rid = str(uuid.uuid4())
     _task = NavTask(
@@ -217,12 +246,18 @@ async def get_status(_request: Request):
     return JSONResponse(asdict(_task))
 
 
+def _snapshot() -> dict[str, Any]:
+    return {
+        "pose": asdict(_pose) if _pose else None,
+        "task": asdict(_task),
+        "teleop_active": _teleop_active,
+    }
+
+
 async def status_stream(request: Request):
-    """SSE stream of (pose, task) snapshots, one event per state change."""
+    """SSE stream of (pose, task, teleop_active) snapshots, one per change."""
     async def gen():
-        # Initial snapshot
-        yield _sse_event({"pose": asdict(_pose) if _pose else None,
-                          "task": asdict(_task)})
+        yield _sse_event(_snapshot())
         while True:
             if await request.is_disconnected():
                 return
@@ -232,8 +267,7 @@ async def status_stream(request: Request):
                 # heartbeat — keeps proxies from closing the stream
                 yield ": ping\n\n"
                 continue
-            yield _sse_event({"pose": asdict(_pose) if _pose else None,
-                              "task": asdict(_task)})
+            yield _sse_event(_snapshot())
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 

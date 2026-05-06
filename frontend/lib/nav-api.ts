@@ -51,6 +51,13 @@ export interface NavMapMetadata {
 export interface NavSnapshot {
   pose: NavPose | null
   task: NavTask
+  /**
+   * True while a browser is holding an open `/ws/teleop` connection. While
+   * true, the backend rejects /api/nav/goto with 409, and dashboard pages
+   * should disable nav controls. Conversely, dashboard's teleop page
+   * should disable drive controls when `task.state` is "pending"/"running".
+   */
+  teleop_active: boolean
 }
 
 export async function fetchNavMap(): Promise<NavMapMetadata> {

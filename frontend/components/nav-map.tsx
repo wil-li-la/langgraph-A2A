@@ -53,6 +53,7 @@ export function NavMap() {
   const [metaError, setMetaError] = useState<string | null>(null)
   const [pose, setPose] = useState<NavPose | null>(null)
   const [task, setTask] = useState<NavTask | null>(null)
+  const [teleopActive, setTeleopActive] = useState(false)
   const [drag, setDrag] = useState<DragState | null>(null)
   const svgRef = useRef<SVGSVGElement | null>(null)
 
@@ -64,6 +65,7 @@ export function NavMap() {
       (snap) => {
         setPose(snap.pose)
         setTask(snap.task)
+        setTeleopActive(snap.teleop_active)
       },
       () => { /* SSE may flicker on backend restart; EventSource auto-reconnects */ },
     )
@@ -115,6 +117,7 @@ export function NavMap() {
 
   const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     if (!meta) return
+    if (teleopActive) return  // teleop is driving — drag-to-nav locked
     const w = eventToWorld(e)
     if (!w) return
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -201,7 +204,12 @@ export function NavMap() {
   return (
     <div className="flex h-full w-full flex-col gap-3 p-3">
       <StatusBar pose={pose} task={task} />
-      <div className="flex flex-1 min-h-0 items-center justify-center bg-black/5">
+      {teleopActive && (
+        <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 font-mono text-xs text-amber-700 dark:text-amber-300">
+          Teleop is driving the robot — nav goals locked. Close the teleop tab to release.
+        </div>
+      )}
+      <div className={`flex flex-1 min-h-0 items-center justify-center bg-black/5 ${teleopActive ? "pointer-events-none opacity-60" : ""}`}>
         <svg
           ref={svgRef}
           viewBox={`0 0 ${meta.width_px} ${meta.height_px}`}

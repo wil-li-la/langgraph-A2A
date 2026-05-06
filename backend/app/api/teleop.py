@@ -7,6 +7,8 @@ from urllib.parse import urlparse
 import websockets
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from app.api.nav import set_teleop_active
+
 logger = logging.getLogger(__name__)
 
 TCP_PROBE_TIMEOUT_SEC = 3.0
@@ -75,6 +77,10 @@ async def teleop_websocket(ws: WebSocket):
         async with websockets.connect(
             robot_url, open_timeout=WS_OPEN_TIMEOUT_SEC
         ) as robot_ws:
+            # Lock nav while a teleop WS is up — browser holds the wheels.
+            # See app/api/nav.py post_goto: returns 409 while this flag is set.
+            set_teleop_active(True)
+
             async def browser_to_robot():
                 try:
                     while True:
@@ -145,6 +151,8 @@ async def teleop_websocket(ws: WebSocket):
         logger.warning(f"Teleop: unexpected error talking to {robot_url}: {exc}")
         await _send_error(ws, "robot_unreachable", str(exc))
     finally:
+        # Always release the nav lock — no-op if we never claimed.
+        set_teleop_active(False)
         try:
             await ws.close()
         except Exception:

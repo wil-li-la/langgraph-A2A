@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRobotConnection } from "@/contexts/robot-connection";
 import { NavBar } from "@/components/nav-bar";
 import { StatusBar } from "./status-bar";
@@ -15,12 +15,21 @@ import { SpeedScale } from "./speed-scale";
 import { RunstopButton } from "./runstop-button";
 import { HomeButton } from "./home-button";
 import { TtsInput } from "./tts-input";
+import { subscribeNavStatus, type NavTaskState } from "@/lib/nav-api";
 
 let chatIdCounter = 0;
 
 export function TeleopPage() {
   const [speedScale, setSpeedScale] = useState(1.0);
   const [chatEntries, setChatEntries] = useState<ChatEntry[]>([]);
+  // Backend's autonomous-nav state. While "pending"/"running", the dashboard's
+  // drive controls are disabled — both ends would otherwise publish cmd_vel
+  // and the robot's 200ms watchdog would resolve to whichever arrived last.
+  const [navState, setNavState] = useState<NavTaskState>("idle");
+
+  useEffect(() => subscribeNavStatus((snap) => setNavState(snap.task.state)), []);
+
+  const navInFlight = navState === "pending" || navState === "running";
 
   const { status, cameras, isConnected, sendCommand } = useRobotConnection();
 
@@ -44,7 +53,12 @@ export function TeleopPage() {
         {/* Left column: Mobility controls (left hand) */}
         <div className="flex flex-col gap-2 min-h-0 overflow-y-auto">
           <RunstopButton runstop={status.runstop} sendCommand={sendCommand} />
-          <DrivePad sendCommand={sendCommand} speedScale={speedScale} disabled={status.nav_state === "navigating"} />
+          {navInFlight && (
+            <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-2 py-1.5 text-center font-mono text-xs text-amber-700 dark:text-amber-300">
+              Backend nav running — drive locked
+            </div>
+          )}
+          <DrivePad sendCommand={sendCommand} speedScale={speedScale} disabled={status.nav_state === "navigating" || navInFlight} />
           <HeadControls sendCommand={sendCommand} speedScale={speedScale} />
           <SpeedScale scale={speedScale} onChange={setSpeedScale} />
         </div>

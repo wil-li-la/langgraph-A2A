@@ -206,7 +206,7 @@ export function NavMap() {
       <StatusBar pose={pose} task={task} />
       {teleopActive && (
         <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 font-mono text-xs text-amber-700 dark:text-amber-300">
-          Teleop is driving the robot — nav goals locked. Close the teleop tab to release.
+          Teleop is driving the robot — nav goals locked. Click <span className="font-semibold">Disconnect</span> in the top nav to release.
         </div>
       )}
       <div className={`flex flex-1 min-h-0 items-center justify-center bg-black/5 ${teleopActive ? "pointer-events-none opacity-60" : ""}`}>

@@ -23,6 +23,11 @@
 #   nav_cleanup_orphans          # kill orphans + wait for ports
 #   nav_cleanup_orphans --status # report only, do not kill
 
+# NOTE: deliberately no `set -u` here. This file is sourced into the
+# caller's shell, and downstream `source /opt/ros/humble/setup.bash`
+# references unset env vars (AMENT_TRACE_SETUP_FILES, etc.); `-u`
+# would make those refs fatal.
+
 # Patterns that uniquely identify our processes. Bash regex (used with =~).
 NAV_ORPHAN_PATTERNS=(
   "nav_bridge/sensors_bridge\.py"

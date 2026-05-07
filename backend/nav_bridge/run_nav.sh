@@ -21,7 +21,10 @@
 #   4. Verify the running nvblox binary contains the issue-#141 patch
 #   5. exec ros2 launch (replaces this shell so SIGINT propagates cleanly)
 
-set -uo pipefail
+# NOTE: do NOT use `set -u` here — `/opt/ros/humble/setup.bash` references
+# AMENT_TRACE_SETUP_FILES (and friends) without first checking if they're
+# set, so `-u` makes the source step fatal with "unbound variable".
+set -o pipefail
 
 ONLY_BRIDGES="false"
 STATUS_ONLY="false"

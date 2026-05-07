@@ -9,7 +9,13 @@ Phase 1b (full stack — requires nav2-bringup, isaac_ros_nvblox, etc):
 from pathlib import Path
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, GroupAction, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    GroupAction,
+    IncludeLaunchDescription,
+    Shutdown,
+)
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -55,11 +61,18 @@ def generate_launch_description() -> LaunchDescription:
 
     # Use ExecuteProcess (not launch_ros.Node) — Node expects an installed
     # ROS package executable; our bridges are raw scripts under nav_bridge/.
+    #
+    # Critical bridges get on_exit=Shutdown() so that if either dies, the
+    # whole launch tears down — instead of staying half-up like it used to,
+    # which is what allowed orphan publishers to accumulate across sessions.
+    # cmdvel_bridge is intentionally non-critical (its absence only disables
+    # motion commands; mesh integration still works without it).
     bridges = [
         ExecuteProcess(
             cmd=["python3", str(bridges_dir / "sensors_bridge.py"),
                  "--robot", robot_host],
             name="sensors_bridge", output="screen",
+            on_exit=Shutdown(reason="sensors_bridge exited; tearing down stack"),
         ),
         ExecuteProcess(
             cmd=["python3", str(bridges_dir / "cmdvel_bridge.py"),
@@ -70,6 +83,7 @@ def generate_launch_description() -> LaunchDescription:
             cmd=["python3", str(bridges_dir / "nav_service.py"),
                  "--robot", robot_host],
             name="nav_service", output="screen",
+            on_exit=Shutdown(reason="nav_service exited; tearing down stack"),
         ),
     ]
 
@@ -155,8 +169,17 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[{
             "port": rosbridge_port,
             "address": "0.0.0.0",
-            # Compress big messages — OccupancyGrids can get to ~MB.
             "send_action_goals_in_new_thread": True,
+            # rosbridge defaults to max_message_size=1_000_000 (1 MB) and
+            # silently drops larger messages. nvblox publishes "entire map"
+            # dumps on every new subscriber — a 1088-block mesh is several
+            # MB of JSON, well past 1 MB. Bumping to 100 MB.
+            # NOTE: do NOT set this to 0 ("unlimited"). rosbridge uses the
+            # value as a divisor in its fragmentation code for service-call
+            # responses; 0 triggers `ZeroDivisionError` on every rosapi call
+            # (e.g. /rosapi/topic_type, which the dashboard uses for
+            # auto-typed subscribe).
+            "max_message_size": 100_000_000,
         }],
         output="screen",
     )
@@ -192,11 +215,17 @@ def generate_launch_description() -> LaunchDescription:
                 "color_qos": "SENSOR_DATA",
             },
         ],
+        # nvblox 0.3+ uses multi-camera input names (`/camera_0/...`,
+        # `/camera_1/...`); the older single-camera symbols (`depth/image`)
+        # are NOT what it actually subscribes to. Verified empirically:
+        # `ros2 node info /nvblox_node` lists `/camera_0/depth/image`,
+        # `/camera_0/depth/camera_info`, etc. as its subscriptions.
+        # We remap those onto sensors_bridge's `/camera/...` outputs.
         remappings=[
-            ("depth/image", "/camera/depth/image_rect_raw"),
-            ("depth/camera_info", "/camera/depth/camera_info"),
-            ("color/image", "/camera/color/image_raw"),
-            ("color/camera_info", "/camera/color/camera_info"),
+            ("/camera_0/depth/image", "/camera/depth/image_rect_raw"),
+            ("/camera_0/depth/camera_info", "/camera/depth/camera_info"),
+            ("/camera_0/color/image", "/camera/color/image_raw"),
+            ("/camera_0/color/camera_info", "/camera/color/camera_info"),
         ],
         condition=UnlessCondition(only_bridges),
     )

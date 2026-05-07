@@ -385,7 +385,7 @@ export function NavMap() {
         </svg>
       </div>
       <LayerControls layers={layers} setLayers={setLayers} />
-      <Legend />
+      <Legend pose={pose} />
     </div>
   )
 }
@@ -423,6 +423,42 @@ function LayerControls({
   )
 }
 
+function PoseSourceBadge({ pose }: { pose: NavPose }) {
+  // Three states the badge reflects:
+  //   - "user"        → MANUAL (you set this by dragging; will drift on
+  //                     wheel odom alone until re-set)
+  //   - "localizer"   → LIVE   (the room-camera localizer is publishing;
+  //                     pose tracks the robot in real time)
+  //   - "nav_result"  → POST-NAV (snapshot from the last completed goal)
+  //
+  // Localizer support is the future state. Today, expect "user" — the
+  // badge color makes that obvious so an operator doesn't mistake a
+  // stale manual pose for live data.
+  const ageMs = Date.now() - pose.ts_ms
+  const ageMin = Math.floor(ageMs / 60000)
+  const ageStr = ageMin === 0 ? "just now" : ageMin === 1 ? "1 min ago" : `${ageMin} min ago`
+  switch (pose.source) {
+    case "localizer":
+      return (
+        <span className="ml-2 rounded-sm bg-emerald-500/15 px-1.5 py-0.5 text-emerald-600 dark:text-emerald-400">
+          LIVE
+        </span>
+      )
+    case "nav_result":
+      return (
+        <span className="ml-2 rounded-sm bg-blue-500/15 px-1.5 py-0.5 text-blue-600 dark:text-blue-400">
+          POST-NAV · {ageStr}
+        </span>
+      )
+    default: // "user"
+      return (
+        <span className="ml-2 rounded-sm bg-amber-500/15 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
+          MANUAL · {ageStr}
+        </span>
+      )
+  }
+}
+
 function StatusBar({ pose, task }: { pose: NavPose | null; task: NavTask | null }) {
   return (
     <div className="flex flex-wrap items-center gap-x-6 gap-y-1 rounded-md border border-border bg-card px-3 py-2 font-mono text-xs">
@@ -431,10 +467,10 @@ function StatusBar({ pose, task }: { pose: NavPose | null; task: NavTask | null 
         {pose ? (
           <span>
             ({pose.x.toFixed(2)}, {pose.y.toFixed(2)}, {((pose.theta * 180) / Math.PI).toFixed(1)}°)
-            <span className="ml-2 text-muted-foreground">[{pose.source}]</span>
+            <PoseSourceBadge pose={pose} />
           </span>
         ) : (
-          <span className="text-muted-foreground">unknown — drag the area to set initial pose</span>
+          <span className="text-muted-foreground">unknown — drag the map to set initial pose</span>
         )}
       </div>
       {task && (
@@ -452,12 +488,26 @@ function StatusBar({ pose, task }: { pose: NavPose | null; task: NavTask | null 
   )
 }
 
-function Legend() {
+function Legend({ pose }: { pose: NavPose | null }) {
+  // Surface a one-time hint about the manual workflow when no real
+  // localizer is publishing. Once the room cameras come online and a
+  // /api/nav/pose POST returns source="localizer", the warning hides.
+  const showManualHint = !pose || pose.source === "user"
   return (
-    <div className="rounded-md border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
-      <span className="text-foreground">drag the red robot</span> to adjust its
-      pose if localization is off; <span className="text-foreground">drag empty space</span>{" "}
-      to send a nav goal (drag direction sets heading).
+    <div className="rounded-md border border-border bg-card px-3 py-2 text-xs text-muted-foreground space-y-1">
+      <div>
+        <span className="text-foreground">drag the red robot</span> to adjust its
+        pose if localization is off; <span className="text-foreground">drag empty space</span>{" "}
+        to send a nav goal (drag direction sets heading).
+      </div>
+      {showManualHint && (
+        <div className="text-amber-700 dark:text-amber-300">
+          ⚠ manual-pose mode — robot pose is tracked via wheel odometry only
+          and drifts over long sessions. Re-drag the marker if the robot
+          appears to be in the wrong spot. Cached pose persists across
+          backend restarts.
+        </div>
+      )}
     </div>
   )
 }

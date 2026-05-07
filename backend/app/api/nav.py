@@ -22,6 +22,7 @@ import os
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
 from starlette.requests import Request
@@ -36,6 +37,16 @@ NAV_HOST = os.getenv("NVBLOX_NAV_HOST", "localhost")
 NAV_PORT = int(os.getenv("NVBLOX_NAV_PORT", "5560"))
 NAV_INITIAL_POSE_PORT = int(os.getenv("NVBLOX_NAV_INITIAL_POSE_PORT", "5561"))
 DEFAULT_TIMEOUT_S = float(os.getenv("NVBLOX_NAV_TIMEOUT_S", "60"))
+
+# Persist the manually-set pose across backend restarts so the user
+# doesn't have to re-drag every session. When the room-camera localizer
+# eventually comes online and publishes live poses, this cache becomes
+# a stale-but-harmless fallback (overwritten on next user drag or
+# overridden by the localizer's live source).
+POSE_CACHE_PATH = Path(
+    os.getenv("NVBLOX_NAV_POSE_CACHE",
+              str(Path.home() / ".cache" / "langgraph-A2A" / "nav-pose.json"))
+)
 
 # Mirrors backend/maps/305/map.yaml — single source of truth for the dashboard
 # coord conversion. Update both files together if the map regenerates.
@@ -71,7 +82,46 @@ class NavTask:
     final_pose: tuple[float, float, float] | None
 
 
-_pose: Pose | None = None
+def _load_cached_pose() -> Pose | None:
+    """Read the manually-set pose from disk. Best-effort; failures are silent."""
+    try:
+        with POSE_CACHE_PATH.open() as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return None
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("nav-pose cache unreadable: %s", e)
+        return None
+    try:
+        return Pose(
+            x=float(data["x"]),
+            y=float(data["y"]),
+            theta=float(data["theta"]),
+            source=str(data.get("source", "user")),
+            ts_ms=int(data.get("ts_ms", time.time() * 1000)),
+        )
+    except (KeyError, TypeError, ValueError) as e:
+        logger.warning("nav-pose cache malformed: %s", e)
+        return None
+
+
+def _save_cached_pose(pose: Pose) -> None:
+    """Write the current pose to disk. Best-effort; never raises."""
+    try:
+        POSE_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = POSE_CACHE_PATH.with_suffix(".tmp")
+        with tmp.open("w") as f:
+            json.dump(asdict(pose), f)
+        os.replace(tmp, POSE_CACHE_PATH)
+    except OSError as e:
+        logger.warning("nav-pose cache write failed: %s", e)
+
+
+_pose: Pose | None = _load_cached_pose()
+if _pose is not None:
+    logger.info("restored cached pose: (%.3f, %.3f, %.3f) source=%s age=%dms",
+                _pose.x, _pose.y, _pose.theta, _pose.source,
+                int(time.time() * 1000) - _pose.ts_ms)
 _task: NavTask = NavTask(
     request_id="", target=(0.0, 0.0, 0.0), state="idle",
     status=None, reason="", started_ms=0, finished_ms=None,
@@ -185,6 +235,7 @@ async def _run_nav_task(task: NavTask, timeout_s: float):
 # ----- Endpoint handlers --------------------------------------------------
 
 async def get_pose(_request: Request):
+    await _maybe_restore_cached_pose()
     return JSONResponse(asdict(_pose) if _pose else None)
 
 
@@ -204,6 +255,7 @@ async def post_pose(request: Request):
         return JSONResponse({"error": f"bad pose: {e}"}, status_code=400)
 
     _pose = Pose(*target, source="user")
+    _save_cached_pose(_pose)
     _bump()
     asyncio.create_task(_forward_initial_pose(target))
     return JSONResponse(asdict(_pose))
@@ -256,6 +308,7 @@ def _snapshot() -> dict[str, Any]:
 
 async def status_stream(request: Request):
     """SSE stream of (pose, task, teleop_active) snapshots, one per change."""
+    await _maybe_restore_cached_pose()
     async def gen():
         yield _sse_event(_snapshot())
         while True:
@@ -289,3 +342,25 @@ nav_routes = [
     Route("/api/nav/status/stream", status_stream, methods=["GET"]),
     Route("/api/nav/map", get_map, methods=["GET"]),
 ]
+
+
+_restore_done = False
+
+
+async def _maybe_restore_cached_pose() -> None:
+    """Re-forward the cached user pose to nav_service exactly once.
+
+    Called lazily from get_pose / status_stream — the dashboard hits
+    one of these immediately on /nav page load, which gives us a live
+    event loop to push from. Avoids needing a Starlette lifespan hook
+    (a2a-sdk's app builder doesn't expose add_event_handler reliably).
+    """
+    global _restore_done
+    if _restore_done:
+        return
+    _restore_done = True
+    if _pose is None or _pose.source != "user":
+        return
+    logger.info("forwarding cached pose (%.3f, %.3f, %.3f) to nav_service",
+                _pose.x, _pose.y, _pose.theta)
+    await _forward_initial_pose((_pose.x, _pose.y, _pose.theta))

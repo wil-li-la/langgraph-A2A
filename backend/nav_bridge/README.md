@@ -15,15 +15,20 @@ under `backend/.venv`. Mixing rclpy C extensions with the backend's
 
 ```
 nav_bridge/
-├── sensors_bridge.py     ZMQ → ROS  (depth, color, camera_info, odom_tf, /tf)
-├── cmdvel_bridge.py      ROS → ZMQ  (/cmd_vel → robot:6014, 200ms watchdog)
-├── nav_service.py        ZMQ REP    (backend /api/nav/goto → Nav2 BasicNavigator)
-├── run_bridges.sh        launcher (sources ROS2 itself)
-├── launch/nav.launch.py  full stack (bridges + map_server + Nav2)
+├── sensors_bridge.py        ZMQ → ROS  (depth, color, camera_info, odom_tf, /tf)
+├── cmdvel_bridge.py         ROS → ZMQ  (/cmd_vel → robot:6014, 200ms watchdog)
+├── nav_service.py           ZMQ REP    (backend /api/nav/goto → Nav2 BasicNavigator)
+├── run_nav.sh               canonical launcher — cleans orphans, sources env, exec ros2 launch
+├── run_bridges.sh           bare bridges-only path (predates run_nav.sh; kept for ad-hoc use)
+├── launch/nav.launch.py     full stack (bridges + map_server + Nav2 + nvblox + rosbridge)
+├── lib/cleanup_orphans.sh   sourced by run_nav.sh; reusable nav_cleanup_orphans()
+├── patches/                 third-party patches we apply before building (nvblox issue #141)
+├── scripts/
+│   └── check_mesh_pipeline.sh  end-to-end diagnostic for the recon mesh path
 └── config/
-    ├── nav2_params.yaml  Nav2 controller / planner / costmaps
-    ├── nvblox.yaml       nvblox voxel size, depth topics (loaded once nvblox is built)
-    └── poses.yaml        Phase-2 named poses (medicine / patient / origin)
+    ├── nav2_params.yaml     Nav2 controller / planner / costmaps
+    ├── nvblox.yaml          nvblox voxel size, depth topics
+    └── poses.yaml           Phase-2 named poses (medicine / patient / origin)
 ```
 
 ## One-time prereqs (lab box `hcis-s28`)
@@ -59,7 +64,9 @@ Verifies the ZMQ ↔ ROS plumbing.
 #    ssh stretch-se3-3099.local -l hello-robot
 #    cd Desktop/stretch3-zmq && ./start.sh
 
-# 2. Bridges up (lab box, this directory)
+# 2. Bridges up (lab box, this directory). Either:
+docker exec -it isaac_ros_dev /workspaces/langgraph-A2A/backend/nav_bridge/run_nav.sh --only-bridges
+# or, if you want the host shell (no nvblox container):
 ./run_bridges.sh
 ```
 
@@ -79,15 +86,26 @@ ros2 topic pub /cmd_vel geometry_msgs/Twist \
 # Robot should creep forward; Ctrl-C to stop, robot halts within 200ms.
 ```
 
-## Phase 1b — full stack (Nav2 + map server, no nvblox yet)
+## Phase 1b — full stack (Nav2 + map server + nvblox + rosbridge)
 
 ```bash
-ros2 launch backend/nav_bridge/launch/nav.launch.py
+docker exec -it isaac_ros_dev /workspaces/langgraph-A2A/backend/nav_bridge/run_nav.sh
 ```
 
 This brings up: 3 bridges + 2 static TFs + map_server (loading
-`backend/maps/305/map.yaml`) + nav2_bringup. nvblox is **not** added
-to the local costmap yet — the only obstacle source is the static map.
+`backend/maps/305/map.yaml`) + nav2_bringup + nvblox_node + rosbridge.
+
+`run_nav.sh` is restart-safe — re-running it cleans up any orphans from
+prior crashed/Ctrl-C'd launches, waits for ports `9090/5560/5561` to free,
+sources the workspace, verifies the nvblox issue-#141 patch is built into
+the binary, then `exec`s `ros2 launch`. `--status` reports orphan/port
+state without launching. The launch itself uses `on_exit=Shutdown()` for
+the critical bridges, so a crash takes down the whole stack instead of
+leaving a half-up mess for the next session.
+
+If `run_nav.sh` is unavailable (e.g. on a host without the isaac_ros_dev
+container), you can still call `ros2 launch backend/nav_bridge/launch/nav.launch.py`
+directly — but you lose the cleanup phase and have to manage orphans by hand.
 
 Confirm the static map shows up:
 ```bash
@@ -101,15 +119,14 @@ Then test from the dashboard:
 4. Click-and-drag a goal — Nav2 should plan a path against the static
    map and send `/cmd_vel` to drive the robot
 
-## Phase 1c — add nvblox
+## Phase 1c — wire nvblox into the local costmap
 
-After Part B of `docs/nvblox-integration-guide.md`:
+The launch already starts nvblox itself (Phase 1b). What's still optional
+is using its 2D ESDF slice as a Nav2 costmap layer:
 
-1. Start the nvblox node from the Isaac ROS container, sharing the
-   host network so it sees the same ROS topics as the bridges
-2. Uncomment the `nvblox_layer` line in `config/nav2_params.yaml`
+1. Uncomment the `nvblox_layer` line in `config/nav2_params.yaml`
    under `local_costmap.plugins`
-3. Restart `nav.launch.py`
+2. Restart via `run_nav.sh` (Ctrl-C, then re-invoke — orphans handled)
 
 Now the local costmap reflects live obstacle reconstruction.
 

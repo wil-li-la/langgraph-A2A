@@ -110,11 +110,15 @@ local_costmap:
       height: 6
       resolution: 0.05
       transform_tolerance: 0.5
-      # Phase 1a: just inflation (no nvblox yet). Once isaac_ros_nvblox
-      # is installed and producing /nvblox_node/static_map_slice, add
-      # the nvblox plugin to this list.
-      plugins: ["inflation_layer"]
-      # plugins: ["nvblox_layer", "inflation_layer"]
+      # Phase 1c — nvblox is now built and producing
+      # /nvblox_node/static_map_slice. The nvblox_layer plugin (from the
+      # nvblox_nav2 package, libnvblox_nav2.so) integrates that into the
+      # local costmap so DWB/MPPI sees live obstacles.
+      plugins: ["nvblox_layer", "inflation_layer"]
+      nvblox_layer:
+        plugin: "nvblox::nav2::NvbloxCostmapLayer"
+        nvblox_map_slice_topic: "/nvblox_node/static_map_slice"
+        max_obstacle_distance: 1.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         inflation_radius: 0.4

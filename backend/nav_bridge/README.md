@@ -121,28 +121,32 @@ Now the local costmap reflects live obstacle reconstruction.
   Override per shell, or pass `./run_bridges.sh --robot HOST`.
 - `nav_service` binds `tcp://*:5560`. Override port with `--port`.
 
-## Foxglove visualization
+## Live ROS data for the dashboard (rosbridge)
 
-The launch file spawns a `foxglove_bridge` node on port **8766** by
-default (8765 is Foxglove's canonical port but is squatted on
-`hcis-s28` by the Antigravity IDE — override with `foxglove_port:=N`
-on other hosts). It exposes every ROS2 topic over WebSocket — `/tf`, `/map`,
+The launch file spawns a `rosbridge_websocket` node on port **9090** by
+default (rosbridge's canonical port; override with `rosbridge_port:=N`).
+It exposes every ROS2 topic over JSON-over-WebSocket — `/tf`, `/map`,
 `/local_costmap/costmap`, the nvblox mesh + ESDF, `/cmd_vel_nav`, etc.
-The dashboard `/viz` page embeds Foxglove Studio in an iframe and
-points it at this WS.
+Two consumers:
+
+1. **Dashboard `/nav` page** subscribes via `roslib` (the canonical JS
+   client) and renders live overlays (nvblox 2D slice, costmaps, /plan
+   polyline) on top of the room-305 map.
+2. **Lichtblick on `/viz`** uses the same WS — configure the
+   "Rosbridge (ROS 1 & 2)" data source pointed at this URL — for 3D
+   mesh inspection.
+
+**Why rosbridge and not foxglove_bridge:** the `ros-humble-foxglove-bridge`
+3.x apt package was rewritten on top of Foxglove's commercial Rust SDK
+and only negotiates subprotocol `foxglove.sdk.v1`. The open-source
+`@foxglove/ws-protocol` JS client (last released v0.8.0 before Foxglove
+sunset it) only knows `foxglove.websocket.v1` and gets HTTP 400'd at the
+handshake. rosbridge has been the boring-default ROS↔WS bridge for
+~10 years, FOSS, and Lichtblick speaks it natively.
 
 **Local LAN access (quickest):** in `frontend/.env.local`,
 ```
-NEXT_PUBLIC_FOXGLOVE_WS_URL=ws://192.168.1.100:8766
-```
-…where `192.168.1.100` is the lab box. Note: `app.foxglove.dev` (the
-cloud Foxglove) is HTTPS and will refuse to connect to a `ws://` URL
-due to mixed-content policy. For LAN-only, **also** set
-`NEXT_PUBLIC_FOXGLOVE_STUDIO_URL=http://lab-host:8000` and run a
-self-hosted Studio:
-```bash
-docker run -d --name foxglove-studio --restart unless-stopped \
-  -p 8000:8080 ghcr.io/foxglove/studio:latest
+NEXT_PUBLIC_ROSBRIDGE_WS_URL=ws://192.168.1.100:9090
 ```
 
 **Production (Cloudflare-tunneled, preferred):** add a route to your
@@ -150,23 +154,22 @@ docker run -d --name foxglove-studio --restart unless-stopped \
 ```yaml
 ingress:
   - hostname: stretch-fg.<your-domain>
-    service: ws://localhost:8766
+    service: ws://localhost:9090
 ```
 Then in `frontend/.env.local` (or the Cloudflare Pages env vars):
 ```
-NEXT_PUBLIC_FOXGLOVE_WS_URL=wss://stretch-fg.<your-domain>
+NEXT_PUBLIC_ROSBRIDGE_WS_URL=wss://stretch-fg.<your-domain>
 ```
-This works with `app.foxglove.dev` directly — no self-hosted Studio
-needed.
 
-**Disable foxglove_bridge:** pass `foxglove_port:=0` to the launch
-(skips spawning the node).
+**Disable rosbridge:** comment out the `rosbridge` Node in
+`nav.launch.py` (or set `rosbridge_port:=0` and let the bind fail
+loudly).
 
-**Bandwidth note:** the full nvblox mesh + ESDF can saturate a 100 Mb
-link if every voxel update is sent. Foxglove Studio subscribes only to
-panels that are open, so unused topics aren't streamed. For tighter
-control, configure `topic_whitelist` in the `foxglove_bridge` node
-parameters in `nav.launch.py`.
+**Bandwidth note:** OccupancyGrids can run a few MB per update. roslib
+only requests topics the dashboard actually subscribes to (default
+layer set: nvblox 2D slice + local costmap + path), so the ambient
+load is small. To clamp further, configure `topics_glob` in
+rosbridge's params.
 
 ## Cross-references
 

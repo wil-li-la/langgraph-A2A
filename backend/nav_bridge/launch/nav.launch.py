@@ -26,7 +26,7 @@ def generate_launch_description() -> LaunchDescription:
     only_bridges = LaunchConfiguration("only_bridges")
     robot_host = LaunchConfiguration("robot_host")
     use_static_map_to_odom = LaunchConfiguration("use_static_map_to_odom")
-    foxglove_port = LaunchConfiguration("foxglove_port")
+    rosbridge_port = LaunchConfiguration("rosbridge_port")
 
     args = [
         DeclareLaunchArgument("only_bridges", default_value="false",
@@ -42,13 +42,13 @@ def generate_launch_description() -> LaunchDescription:
             ),
         ),
         DeclareLaunchArgument(
-            "foxglove_port", default_value="8766",
+            "rosbridge_port", default_value="9090",
             description=(
-                "WebSocket port for the foxglove_bridge node. The dashboard's "
-                "/viz page connects through this (typically Cloudflare-tunneled "
-                "to wss://stretch-fg.<domain>). Default 8766 (8765 is the "
-                "Foxglove canonical port but is squatted by Antigravity IDE on "
-                "hcis-s28). Set to 0 to disable."
+                "WebSocket port for rosbridge_websocket. The dashboard's /nav "
+                "page subscribes via roslib for live OccupancyGrid + Path "
+                "overlays, and Lichtblick on /viz uses the same WS for 3D "
+                "mesh. Cloudflare-tunneled in production to "
+                "wss://stretch-fg.<domain>. Default 9090 (rosbridge canonical)."
             ),
         ),
     ]
@@ -138,24 +138,58 @@ def generate_launch_description() -> LaunchDescription:
                    "camera_depth_optical_frame", "camera_color_optical_frame"],
     )
 
-    # foxglove_bridge — exposes all ROS2 topics over WebSocket so Foxglove
-    # Studio (cloud or self-hosted) can render them. The dashboard's /viz
-    # page embeds Foxglove Studio in an iframe pointing at this WS.
-    foxglove_bridge = Node(
-        package="foxglove_bridge", executable="foxglove_bridge",
-        name="foxglove_bridge",
+    # rosbridge_websocket — exposes all ROS2 topics over WebSocket as
+    # JSON. Consumed by:
+    #   - Dashboard /nav page (via frontend/lib/ros-client.ts → roslib)
+    #     for live OccupancyGrid + Path overlays
+    #   - Lichtblick on /viz, configured with the "Rosbridge (ROS 1 & 2)"
+    #     data source pointed at this WS, for 3D mesh inspection
+    # Replaces the old foxglove_bridge. Reason: ros-humble-foxglove-bridge
+    # 3.x switched to Foxglove's commercial SDK protocol
+    # (subprotocol "foxglove.sdk.v1") which the open-source
+    # @foxglove/ws-protocol JS client cannot speak. rosbridge has been
+    # the boring-default ROS↔WS bridge for ~10 years.
+    rosbridge = Node(
+        package="rosbridge_server", executable="rosbridge_websocket",
+        name="rosbridge_websocket",
         parameters=[{
-            "port": foxglove_port,
+            "port": rosbridge_port,
             "address": "0.0.0.0",
-            "tls": False,
-            "send_buffer_limit": 10_000_000,
-            # Allow all topics by default. Tighten if bandwidth is an issue:
-            #   topic_whitelist: ['/tf', '/map', '/nvblox_node/...']
+            # Compress big messages — OccupancyGrids can get to ~MB.
+            "send_action_goals_in_new_thread": True,
         }],
         output="screen",
     )
 
+    # nvblox_node — GPU 3D reconstruction. Consumes the depth + color
+    # streams republished by sensors_bridge, builds a TSDF/ESDF, and
+    # publishes the 2D slice that nvblox_nav2's costmap layer reads.
+    # Requires running inside the isaac_ros_dev container (the nvblox
+    # binary depends on container-built CUDA libs); the nav.launch.py
+    # entry-point itself doesn't care, but on the host this Node will
+    # fail to start with "executable not found".
+    nvblox_node = Node(
+        package="nvblox_ros", executable="nvblox_node",
+        name="nvblox_node",
+        output="screen",
+        parameters=[
+            str(config_dir / "nvblox.yaml"),
+            {
+                # Topic remaps to match sensors_bridge's outputs
+                "depth_qos": "SENSOR_DATA",
+                "color_qos": "SENSOR_DATA",
+            },
+        ],
+        remappings=[
+            ("depth/image", "/camera/depth/image_rect_raw"),
+            ("depth/camera_info", "/camera/depth/camera_info"),
+            ("color/image", "/camera/color/image_raw"),
+            ("color/camera_info", "/camera/color/camera_info"),
+        ],
+        condition=UnlessCondition(only_bridges),
+    )
+
     return LaunchDescription(args + bridges + [
-        static_tf_camera, static_tf_color, foxglove_bridge,
+        static_tf_camera, static_tf_color, rosbridge, nvblox_node,
         map_server, map_server_lifecycle, nav2_bringup,
     ])

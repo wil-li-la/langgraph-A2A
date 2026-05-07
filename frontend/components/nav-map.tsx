@@ -11,6 +11,14 @@ import {
   type NavStatus,
   type NavTask,
 } from "@/lib/nav-api"
+import { useRosTopic } from "@/hooks/use-ros-topic"
+import type { OccupancyGrid, Path } from "@/lib/ros-client"
+import {
+  renderOccupancyGrid,
+  STYLE_GLOBAL_COSTMAP,
+  STYLE_LOCAL_COSTMAP,
+  STYLE_NVBLOX_2D,
+} from "@/lib/occupancy-grid"
 
 /**
  * Interactive room-305 map. Renders the static .pgm preview, overlays the
@@ -48,6 +56,13 @@ function statusColor(status: NavStatus | null, state: NavTask["state"]): string 
   return "text-red-500"
 }
 
+interface LayerState {
+  nvblox: boolean
+  localCostmap: boolean
+  globalCostmap: boolean
+  path: boolean
+}
+
 export function NavMap() {
   const [meta, setMeta] = useState<NavMapMetadata | null>(null)
   const [metaError, setMetaError] = useState<string | null>(null)
@@ -55,7 +70,26 @@ export function NavMap() {
   const [task, setTask] = useState<NavTask | null>(null)
   const [teleopActive, setTeleopActive] = useState(false)
   const [drag, setDrag] = useState<DragState | null>(null)
+  const [layers, setLayers] = useState<LayerState>({
+    nvblox: true,
+    localCostmap: true,
+    globalCostmap: false,
+    path: true,
+  })
   const svgRef = useRef<SVGSVGElement | null>(null)
+
+  // Live ROS topics — null when foxglove_bridge isn't reachable. Each
+  // returns latest decoded message; subscribers reuse one shared WS.
+  const nvbloxSlice = useRosTopic<OccupancyGrid>(
+    layers.nvblox ? "/nvblox_node/static_map_slice" : null,
+  )
+  const localCostmap = useRosTopic<OccupancyGrid>(
+    layers.localCostmap ? "/local_costmap/costmap" : null,
+  )
+  const globalCostmap = useRosTopic<OccupancyGrid>(
+    layers.globalCostmap ? "/global_costmap/costmap" : null,
+  )
+  const planMsg = useRosTopic<Path>(layers.path ? "/plan" : null)
 
   // ---- Bootstrap: fetch map metadata, subscribe to SSE pose+task stream
 
@@ -201,6 +235,35 @@ export function NavMap() {
     previewArrow = { fromPx: startPx, toPx: currentPx }
   }
 
+  // Compute SVG layout for an OccupancyGrid given its info.origin (map
+  // frame, lower-left corner of the grid) + cell resolution. The grid's
+  // pixel resolution differs from the static map's (e.g. nvblox is
+  // 0.05 m/cell vs static 0.006), so we scale to the static-map's
+  // pixel space.
+  const gridImageProps = (grid: OccupancyGrid | null) => {
+    if (!grid || !meta) return null
+    const cell = grid.info.resolution
+    const widthPxOnMap = (grid.info.width * cell) / meta.resolution
+    const heightPxOnMap = (grid.info.height * cell) / meta.resolution
+    const tlWorld = {
+      x: grid.info.origin.position.x,
+      y: grid.info.origin.position.y + grid.info.height * cell,
+    }
+    const tlPx = worldToPx(tlWorld.x, tlWorld.y)
+    return { x: tlPx.px, y: tlPx.py, width: widthPxOnMap, height: heightPxOnMap }
+  }
+
+  // renderOccupancyGrid is WeakMap-cached on the message object — no
+  // useMemo wrapper needed (and useMemo here would violate Rules of
+  // Hooks since it sits below the early returns above).
+  const nvbloxRender = nvbloxSlice ? renderOccupancyGrid(nvbloxSlice, STYLE_NVBLOX_2D) : null
+  const localCostmapRender = localCostmap ? renderOccupancyGrid(localCostmap, STYLE_LOCAL_COSTMAP) : null
+  const globalCostmapRender = globalCostmap ? renderOccupancyGrid(globalCostmap, STYLE_GLOBAL_COSTMAP) : null
+
+  const nvbloxBox = gridImageProps(nvbloxSlice)
+  const localBox = gridImageProps(localCostmap)
+  const globalBox = gridImageProps(globalCostmap)
+
   return (
     <div className="flex h-full w-full flex-col gap-3 p-3">
       <StatusBar pose={pose} task={task} />
@@ -228,6 +291,38 @@ export function NavMap() {
             height={meta.height_px}
             preserveAspectRatio="none"
           />
+
+          {/* Live ROS layers, painted under the robot/goal markers */}
+          {globalCostmapRender && globalBox && (
+            <image href={globalCostmapRender.dataUrl}
+                   x={globalBox.x} y={globalBox.y}
+                   width={globalBox.width} height={globalBox.height}
+                   preserveAspectRatio="none"
+                   style={{ imageRendering: "pixelated" }} />
+          )}
+          {nvbloxRender && nvbloxBox && (
+            <image href={nvbloxRender.dataUrl}
+                   x={nvbloxBox.x} y={nvbloxBox.y}
+                   width={nvbloxBox.width} height={nvbloxBox.height}
+                   preserveAspectRatio="none"
+                   style={{ imageRendering: "pixelated" }} />
+          )}
+          {localCostmapRender && localBox && (
+            <image href={localCostmapRender.dataUrl}
+                   x={localBox.x} y={localBox.y}
+                   width={localBox.width} height={localBox.height}
+                   preserveAspectRatio="none"
+                   style={{ imageRendering: "pixelated" }} />
+          )}
+          {/* Live planned path (nav_msgs/Path), if Nav2 is computing one */}
+          {layers.path && planMsg && planMsg.poses.length > 1 && (() => {
+            const pts = planMsg.poses.map((p) => worldToPx(p.pose.position.x, p.pose.position.y))
+            const d = pts.map((pt, i) => `${i === 0 ? "M" : "L"} ${pt.px} ${pt.py}`).join(" ")
+            return (
+              <path d={d} fill="none" stroke="#10b981" strokeWidth={4}
+                    strokeLinecap="round" strokeLinejoin="round" opacity={0.8} />
+            )
+          })()}
 
           {/* Drag preview */}
           {previewPx && previewArrow && (
@@ -289,7 +384,41 @@ export function NavMap() {
           })()}
         </svg>
       </div>
+      <LayerControls layers={layers} setLayers={setLayers} />
       <Legend />
+    </div>
+  )
+}
+
+function LayerControls({
+  layers, setLayers,
+}: { layers: LayerState; setLayers: (l: LayerState) => void }) {
+  const items: Array<{
+    key: keyof LayerState
+    label: string
+    swatch: string
+  }> = [
+    { key: "nvblox", label: "nvblox 2D slice", swatch: "#ef4444" },
+    { key: "localCostmap", label: "local costmap (Nav2 + nvblox)", swatch: "#3b82f6" },
+    { key: "globalCostmap", label: "global costmap (static map)", swatch: "#6366f1" },
+    { key: "path", label: "planned path", swatch: "#10b981" },
+  ]
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-border bg-card px-3 py-2 font-mono text-xs">
+      <span className="text-muted-foreground">layers:</span>
+      {items.map((item) => (
+        <label key={item.key} className="flex cursor-pointer items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={layers[item.key]}
+            onChange={(e) => setLayers({ ...layers, [item.key]: e.target.checked })}
+            className="cursor-pointer"
+          />
+          <span className="inline-block h-2.5 w-2.5 rounded-sm"
+                style={{ backgroundColor: item.swatch }} />
+          {item.label}
+        </label>
+      ))}
     </div>
   )
 }

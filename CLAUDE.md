@@ -37,8 +37,25 @@ Frontend connects to backend via `NEXT_PUBLIC_API_URL` (defaults to `http://loca
 ### Production deployment
 
 - **Frontend**: hosted on **Cloudflare Pages** as a static export (24/7, no laptop uptime needed). `next.config.mjs` has `output: 'export'`. Pages auto-builds `frontend/` on every push to `main`. `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_ROBOT_HOST`, and `NEXT_PUBLIC_ROOM_CAMERAS_URL` are set in the Pages project's env vars and baked at build time.
-- **Backend**: runs on the lab laptop and is exposed via **Cloudflare Tunnel** at `stretch-api.<domain>`. Daily run is two terminals: `cloudflared tunnel run …` + `python -m app`. See root README for tunnel config.
-- Docker has been removed (no Dockerfiles, no compose) — use the venv install path in `backend/INSTALL.md`.
+- **Backend**: runs on the lab laptop and is exposed via **Cloudflare Tunnel** at `stretch-api.<domain>`. See root README for tunnel config.
+- Docker has been removed for the backend (no Dockerfiles, no compose for the A2A service) — use the venv install path in `backend/INSTALL.md`. The nav stack does still run inside the `isaac_ros_dev` container because nvblox needs CUDA libs from there.
+
+### Lab daily run (3 terminals)
+
+```bash
+# T1 — backend A2A + dashboard API (host venv)
+cd backend && source .venv/bin/activate && python -m app
+
+# T2 — full nav stack (in isaac_ros_dev container, restart-safe)
+docker exec -it isaac_ros_dev /workspaces/langgraph-A2A/backend/nav_bridge/run_nav.sh
+#   --only-bridges    skip nvblox + Nav2 (Phase 1a)
+#   --status          report orphan/port state, do not launch
+
+# T3 — Cloudflare tunnel (production only)
+cloudflared tunnel run …
+```
+
+`run_nav.sh` cleans up any orphan processes from prior crashed launches, waits for ports `9090/5560/5561` to free, sources `/opt/ros/humble` + `/workspaces/isaac_ros-dev/install`, sets `ROS_DOMAIN_ID=37`, verifies the nvblox issue-#141 patch is built into the binary, then `exec`s `ros2 launch nav.launch.py`. If you hit `Address already in use` errors or a half-up stack, just re-run the same command — that's the whole recovery flow. The launch itself uses `on_exit=Shutdown()` for the critical `sensors_bridge` and `nav_service` processes, so a crash of either tears the whole stack down loudly instead of leaving a half-up mess for the next session to inherit.
 
 ### Room cameras (ROS2 → MJPEG bridge)
 

@@ -14,26 +14,64 @@
 #
 # Usage:
 #   ./check_mesh_pipeline.sh
+#   ./check_mesh_pipeline.sh --domain 37                    # ROS_DOMAIN_ID (default 37)
 #   ./check_mesh_pipeline.sh --ws-url ws://localhost:9090   # custom rosbridge
 #   ./check_mesh_pipeline.sh --hz-window 5                  # longer rate sample
 #
 # Run on the lab box (the host running nav.launch.py), with ROS2 humble
 # already sourced. The script will source /opt/ros/humble/setup.bash if
 # rclpy isn't found.
+#
+# Domain note: the nav stack runs on ROS_DOMAIN_ID=37 (room_cameras uses
+# 42). This script defaults to 37 — overriding whatever's in the calling
+# shell — because that's the only domain it knows how to diagnose.
 
-set -uo pipefail
+set -o pipefail
 
 WS_URL="ws://localhost:9090"
 HZ_WINDOW=3
+DOMAIN=37
+
+VIA_DOCKER="auto"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --domain) DOMAIN="$2"; shift 2;;
     --ws-url) WS_URL="$2"; shift 2;;
     --hz-window) HZ_WINDOW="$2"; shift 2;;
-    -h|--help) sed -n '2,22p' "$0"; exit 0;;
+    --via-docker) VIA_DOCKER="yes"; shift;;
+    --no-docker) VIA_DOCKER="no"; shift;;
+    -h|--help) sed -n '2,26p' "$0"; exit 0;;
     *) echo "unknown arg: $1" >&2; exit 1;;
   esac
 done
+
+# DDS visibility caveat: if you run this script ON THE HOST and the nav
+# stack runs INSIDE isaac_ros_dev, ROS2 discovery works (`ros2 node list`
+# sees the container's nodes) but actual message transport (`topic echo`,
+# `topic hz`) often does NOT — FastDDS picks shared-memory or unicast
+# loopback paths the host can't read. Result: false-negative 0 Hz reports
+# even when the stack is healthy.
+#
+# To get accurate rate readings from outside the container, re-exec
+# ourselves via `docker exec`. Default `auto`: do this if we detect a
+# running isaac_ros_dev container, the file path is a bind-mount, and
+# we're NOT already inside the container. `--via-docker` forces it,
+# `--no-docker` disables it (e.g., for the on-host-only path).
+if [[ "$VIA_DOCKER" != "no" && ! -e /.dockerenv ]]; then
+  if [[ "$VIA_DOCKER" == "yes" ]] || docker ps --format '{{.Names}}' 2>/dev/null | grep -qx isaac_ros_dev; then
+    if docker exec isaac_ros_dev test -f /workspaces/langgraph-A2A/backend/nav_bridge/scripts/check_mesh_pipeline.sh 2>/dev/null; then
+      echo "[diag] re-exec'ing inside isaac_ros_dev for accurate DDS visibility"
+      exec docker exec isaac_ros_dev /workspaces/langgraph-A2A/backend/nav_bridge/scripts/check_mesh_pipeline.sh \
+        --no-docker --domain "$DOMAIN" --ws-url "$WS_URL" --hz-window "$HZ_WINDOW"
+    fi
+  fi
+fi
+
+# Force the nav-stack domain unless the user explicitly overrode with --domain.
+# (Without this we silently pick up whatever the calling shell had — typically
+# 42 from room_cameras — and report the nav stack as "down" when it isn't.)
+export ROS_DOMAIN_ID="$DOMAIN"
 
 if ! command -v ros2 >/dev/null 2>&1; then
   ROS_SETUP="${ROS_SETUP:-/opt/ros/humble/setup.bash}"
@@ -122,25 +160,43 @@ else
 fi
 
 section "[A2] duplicate-publisher / TF-tree sanity"
-expected_pubs=1
+# Expected publisher counts for a clean launch:
+#   /camera/* — exactly 1 (sensors_bridge)
+#   /tf_static — 2 (one per static_transform_publisher node:
+#                base→camera_depth, camera_depth→camera_color)
+declare -A EXPECTED_PUBS=(
+  [/camera/depth/image_rect_raw]=1
+  [/camera/color/image_raw]=1
+  [/camera/depth/camera_info]=1
+  [/camera/color/camera_info]=1
+  [/tf_static]=2
+)
 for t in /camera/depth/image_rect_raw /camera/color/image_raw \
          /camera/depth/camera_info /camera/color/camera_info /tf_static; do
   pubs="$(topic_publishers "$t")"
   pubs="${pubs:-0}"
-  if [[ "$pubs" -eq "$expected_pubs" ]]; then
+  expect="${EXPECTED_PUBS[$t]}"
+  if [[ "$pubs" -eq "$expect" ]]; then
     ok "$t pubs=$pubs"
-  elif [[ "$pubs" -gt "$expected_pubs" ]]; then
-    fail "$t pubs=$pubs — orphan publishers from a prior crashed launch"
+  elif [[ "$pubs" -gt "$expect" ]]; then
+    fail "$t pubs=$pubs (expected $expect) — orphan publishers from a prior crashed launch"
     echo "       fix: backend/nav_bridge/run_nav.sh (cleans up before launching)"
   else
-    fail "$t pubs=$pubs — no one is publishing"
+    fail "$t pubs=$pubs (expected $expect) — no one is publishing"
   fi
 done
 
 # Verify the map frame exists. nvblox needs map → camera_depth_optical_frame
 # at every depth callback; if the map frame is missing, depth is silently
 # dropped and the mesh stays empty.
-if timeout 4 ros2 run tf2_ros tf2_echo map camera_depth_optical_frame 2>&1 \
+#
+# Longer timeout (10s) than feels right because tf2_echo's first
+# canTransform call often fires before the broadcaster's first message
+# has reached the listener — gives a misleading "frame does not exist"
+# log line before the actual transform shows up. We grep for
+# "Translation" in the cumulative output, so as long as ONE valid
+# lookup happens within 10s we're good.
+if timeout 10 ros2 run tf2_ros tf2_echo map camera_depth_optical_frame 2>&1 \
      | grep -q "Translation"; then
   ok "TF map → camera_depth_optical_frame resolves"
 else

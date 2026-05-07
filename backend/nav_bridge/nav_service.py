@@ -67,6 +67,31 @@ def _se2_unpack(M: np.ndarray) -> tuple[float, float, float]:
     return float(M[0, 2]), float(M[1, 2]), float(math.atan2(M[1, 0], M[0, 0]))
 
 
+def _bind_or_die(sock, addr: str, label: str, logger) -> None:
+    """Bind a ZMQ socket; on EADDRINUSE log a precise remediation and re-raise.
+
+    Without this wrapper, `nav.launch.py`'s ExecuteProcess sees nav_service
+    exit silently on a port conflict and the rest of the stack stays up,
+    which is what allowed the orphan-publisher mess this is fixing. With
+    this wrapper plus on_exit=Shutdown() in nav.launch.py, a port conflict
+    is loud AND tears the whole launch down so the next run_nav.sh starts
+    clean.
+    """
+    try:
+        sock.bind(addr)
+    except zmq.error.ZMQError as e:
+        if e.errno == 98:  # EADDRINUSE
+            logger.fatal(
+                f"nav_service: cannot bind {label} on {addr}: address in use. "
+                f"This means an orphan nav_service from a prior crashed launch "
+                f"is still alive. Stop the current launch and re-run via "
+                f"backend/nav_bridge/run_nav.sh — it cleans up before launching."
+            )
+        else:
+            logger.fatal(f"nav_service: cannot bind {label} on {addr}: {e!r}")
+        raise
+
+
 class NavServiceNode(Node):
     def __init__(self, bind_port: int, initial_pose_port: int,
                  robot_host: str, robot_odom_port: int) -> None:
@@ -114,7 +139,7 @@ class NavServiceNode(Node):
         self.rep = ctx.socket(zmq.REP)
         self.rep.setsockopt(zmq.LINGER, 0)
         bind_addr = f"tcp://*:{bind_port}"
-        self.rep.bind(bind_addr)
+        _bind_or_die(self.rep, bind_addr, "goto", self.get_logger())
         self.get_logger().info(f"nav_service goto bound on {bind_addr}")
 
         # Separate REP socket for set_initial_pose so a long-running goto
@@ -122,7 +147,7 @@ class NavServiceNode(Node):
         self.rep_pose = ctx.socket(zmq.REP)
         self.rep_pose.setsockopt(zmq.LINGER, 0)
         pose_bind_addr = f"tcp://*:{initial_pose_port}"
-        self.rep_pose.bind(pose_bind_addr)
+        _bind_or_die(self.rep_pose, pose_bind_addr, "initial_pose", self.get_logger())
         self.get_logger().info(f"nav_service initial_pose bound on {pose_bind_addr}")
 
         threading.Thread(target=self._serve_loop, name="zmq-rep-goto",

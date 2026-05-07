@@ -161,6 +161,18 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
     )
 
+    # rosapi_node — exposes /rosapi/* introspection services
+    # (topic_type, get_topic_names, etc.). Required by roslib's
+    # auto-typed subscribe API, which the dashboard /nav page uses to
+    # discover OccupancyGrid / Path types at runtime instead of
+    # hardcoding them. rosbridge_websocket on its own does NOT
+    # provide these services.
+    rosapi = Node(
+        package="rosapi", executable="rosapi_node",
+        name="rosapi",
+        output="screen",
+    )
+
     # nvblox_node — GPU 3D reconstruction. Consumes the depth + color
     # streams republished by sensors_bridge, builds a TSDF/ESDF, and
     # publishes the 2D slice that nvblox_nav2's costmap layer reads.
@@ -190,6 +202,6 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     return LaunchDescription(args + bridges + [
-        static_tf_camera, static_tf_color, rosbridge, nvblox_node,
+        static_tf_camera, static_tf_color, rosbridge, rosapi, nvblox_node,
         map_server, map_server_lifecycle, nav2_bringup,
     ])

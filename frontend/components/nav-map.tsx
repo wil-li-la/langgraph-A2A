@@ -78,10 +78,16 @@ export function NavMap() {
   })
   const svgRef = useRef<SVGSVGElement | null>(null)
 
-  // Live ROS topics — null when foxglove_bridge isn't reachable. Each
-  // returns latest decoded message; subscribers reuse one shared WS.
+  // Live ROS topics — null when rosbridge isn't reachable. Each returns
+  // the latest decoded message; subscribers reuse one shared WS.
+  // Note: /nvblox_node/static_map_slice is a custom nvblox_msgs/
+  // DistanceMapSlice (NOT a nav_msgs/OccupancyGrid). For the standard
+  // occupancy view we use /nvblox_node/static_occupancy_grid which IS
+  // a regular OccupancyGrid. The Nav2 local-costmap plugin in
+  // config/nav2_params.yaml still reads the slice topic for its own
+  // pathfinding — that's an internal detail.
   const nvbloxSlice = useRosTopic<OccupancyGrid>(
-    layers.nvblox ? "/nvblox_node/static_map_slice" : null,
+    layers.nvblox ? "/nvblox_node/static_occupancy_grid" : null,
   )
   const localCostmap = useRosTopic<OccupancyGrid>(
     layers.localCostmap ? "/local_costmap/costmap" : null,

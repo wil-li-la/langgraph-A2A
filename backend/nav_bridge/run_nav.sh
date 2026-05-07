@@ -72,7 +72,14 @@ if [[ "$ONLY_BRIDGES" == "false" ]]; then
     echo "[run_nav] ERROR: nvblox_node binary not found — workspace not built" >&2
     exit 3
   fi
-  if ! strings "$NVBLOX_BIN" | grep -q nitros_image_mono16; then
+  # Use process substitution rather than `strings $BIN | grep -q` because
+  # under `pipefail` (which we want for fail-on-pipe-errors elsewhere),
+  # grep -q closes its stdin on the first match → strings dies with
+  # SIGPIPE → pipefail makes the whole pipeline non-zero → false negative.
+  # The patch lives in libnvblox_ros_lib.so, not the launcher binary, but
+  # the launcher's symbol table also references the type names so checking
+  # nvblox_node alone is sufficient.
+  if ! grep -q nitros_image_mono16 < <(strings "$NVBLOX_BIN" 2>/dev/null); then
     echo "[run_nav] ERROR: nvblox_node binary lacks the issue-#141 patch (nitros_image_mono16 not found)" >&2
     echo "          Apply backend/nav_bridge/patches/nvblox-issue-141.patch and rebuild." >&2
     exit 4

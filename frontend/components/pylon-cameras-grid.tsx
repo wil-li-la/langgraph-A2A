@@ -178,6 +178,13 @@ function HlsTile({ cam }: { cam: Cam }) {
       session = attachHls(cam.hlsUrl, video)
       if (session.hls) {
         session.hls.on(Hls.Events.ERROR, (_event, data) => {
+          // Log every error (including non-fatal) so silent black-screen
+          // failures are diagnosable from the browser console.
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[hls ${cam.label}] ${data.type}/${data.details}${data.fatal ? " FATAL" : ""}`,
+            data,
+          )
           if (data.fatal) {
             setErrored(true)
             if (retryRef.current) clearTimeout(retryRef.current)
@@ -186,6 +193,12 @@ function HlsTile({ cam }: { cam: Cam }) {
               setAttempt((n) => n + 1)
             }, STREAM_RETRY_MS)
           }
+        })
+        // Manifest-parse confirmation — if you never see this in the
+        // console, hls.js didn't even reach the manifest.
+        session.hls.on(Hls.Events.MANIFEST_PARSED, (_e, data) => {
+          // eslint-disable-next-line no-console
+          console.log(`[hls ${cam.label}] manifest parsed, ${data.levels.length} level(s)`)
         })
       }
     } catch {

@@ -59,10 +59,17 @@ hlsEncryption: yes
 hlsServerCert: ../cam_bridge/cert.pem
 hlsServerKey: ../cam_bridge/key.pem
 hlsAllowOrigin: "*"
-hlsVariant: lowLatency
+# `lowLatency` produces #EXT-X-SERVER-CONTROL + #EXT-X-PART-INF directives.
+# Even with hls.js's lowLatencyMode disabled, the client v1.6 still issues
+# blocking _HLS_msn/_HLS_part playlist GETs whenever the server advertises
+# CAN-BLOCK-RELOAD — and those long-polls time out through the Cloudflare
+# tunnel (`networkError/levelLoadTimeOut` non-fatal storms). Standard
+# `fmp4` variant emits a plain HLS playlist with no LL extensions and
+# hls.js does normal periodic polling. Latency goes from ~400 ms to
+# ~5-10 s; rock-solid through any HTTP-only proxy.
+hlsVariant: fmp4
 hlsAlwaysRemux: yes
-hlsSegmentDuration: 200ms
-hlsPartDuration: 100ms
+hlsSegmentDuration: 1s
 
 ###############################################################################
 # Paths — one per camera. `source` is the upstream RTSP we pull from.

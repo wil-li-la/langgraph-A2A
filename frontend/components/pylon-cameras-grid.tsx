@@ -194,11 +194,28 @@ function HlsTile({ cam }: { cam: Cam }) {
             }, STREAM_RETRY_MS)
           }
         })
-        // Manifest-parse confirmation — if you never see this in the
-        // console, hls.js didn't even reach the manifest.
+        // Stage-by-stage confirmation. If manifest_parsed fires but
+        // frag_loaded never does, segment fetches are broken. If
+        // frag_loaded fires but buffer_appended never does, MediaSource
+        // is rejecting the bytes. Only log each event once per tile to
+        // keep the console readable across 8 cams.
+        let fragLoggedOnce = false
+        let bufferLoggedOnce = false
         session.hls.on(Hls.Events.MANIFEST_PARSED, (_e, data) => {
           // eslint-disable-next-line no-console
           console.log(`[hls ${cam.label}] manifest parsed, ${data.levels.length} level(s)`)
+        })
+        session.hls.on(Hls.Events.FRAG_LOADED, () => {
+          if (fragLoggedOnce) return
+          fragLoggedOnce = true
+          // eslint-disable-next-line no-console
+          console.log(`[hls ${cam.label}] first fragment loaded`)
+        })
+        session.hls.on(Hls.Events.BUFFER_APPENDED, () => {
+          if (bufferLoggedOnce) return
+          bufferLoggedOnce = true
+          // eslint-disable-next-line no-console
+          console.log(`[hls ${cam.label}] first buffer appended → should be playing`)
         })
       }
     } catch {

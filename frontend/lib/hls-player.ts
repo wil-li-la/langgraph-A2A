@@ -19,16 +19,16 @@ export function attachHls(
 ): HlsSession {
   if (Hls.isSupported()) {
     const hls = new Hls({
-      // Tune for low latency. MediaMTX's HLS-LL emits 100ms partial
-      // segments — match the consumer side.
-      lowLatencyMode: true,
-      backBufferLength: 4,
-      liveSyncDurationCount: 1,
-      liveMaxLatencyDurationCount: 2,
+      // Standard HLS. LL mode produces silent black screens through a
+      // Cloudflare-tunneled MediaMTX HLS-LL endpoint: hls.js v1.6 + the
+      // `#EXT-X-TARGETDURATION:0` MediaMTX emits for sub-second segments
+      // + blocking-playlist part fetches over the CDN don't combine
+      // reliably. Falling back to standard HLS adds ~2-3 s latency for
+      // a much more robust pipeline.
+      lowLatencyMode: false,
+      backBufferLength: 30,
       liveDurationInfinity: true,
       enableWorker: true,
-      maxBufferLength: 4,
-      maxMaxBufferLength: 8,
     })
     hls.loadSource(url)
     hls.attachMedia(video)

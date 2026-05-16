@@ -22,16 +22,18 @@ import { attachHls, detachHls, type HlsSession } from "@/lib/hls-player"
 //    tiles are <img src=".../stream?type=mjpeg">.
 //
 // _{RIGHT,LEFT}_URL still drive which sides are rendered.
-const MEDIAMTX_HLS_URL =
-  process.env.NEXT_PUBLIC_MEDIAMTX_HLS_URL?.replace(/\/$/, "") || ""
-const MEDIAMTX_WEBRTC_URL =
-  process.env.NEXT_PUBLIC_MEDIAMTX_WEBRTC_URL?.replace(/\/$/, "") || ""
-const BRIDGE_URL =
-  process.env.NEXT_PUBLIC_CAM_BRIDGE_URL?.replace(/\/$/, "") || ""
-const RIGHT_URL =
-  process.env.NEXT_PUBLIC_PYLON_CAMS_RIGHT_URL?.replace(/\/$/, "") || ""
-const LEFT_URL =
-  process.env.NEXT_PUBLIC_PYLON_CAMS_LEFT_URL?.replace(/\/$/, "") || ""
+// Whitespace tolerated because Cloudflare Pages' env-var UI doesn't trim,
+// and a leading/trailing space silently breaks `${URL}/cam_3/index.m3u8`.
+const cleanUrl = (v: string | undefined): string =>
+  (v ?? "").trim().replace(/\/$/, "")
+
+const MEDIAMTX_HLS_URL = cleanUrl(process.env.NEXT_PUBLIC_MEDIAMTX_HLS_URL)
+const MEDIAMTX_WEBRTC_URL = cleanUrl(
+  process.env.NEXT_PUBLIC_MEDIAMTX_WEBRTC_URL,
+)
+const BRIDGE_URL = cleanUrl(process.env.NEXT_PUBLIC_CAM_BRIDGE_URL)
+const RIGHT_URL = cleanUrl(process.env.NEXT_PUBLIC_PYLON_CAMS_RIGHT_URL)
+const LEFT_URL = cleanUrl(process.env.NEXT_PUBLIC_PYLON_CAMS_LEFT_URL)
 
 const CAM_IDS = [3, 6, 8, 10, 12, 13, 15, 16] as const
 

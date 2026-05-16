@@ -1,0 +1,35 @@
+host: 0.0.0.0
+port: 9998
+# JPEG framerate hint for ffmpeg's mjpeg demuxer. Real cap is the camera
+# publish rate (~30 Hz). Setting this too low drops frames at the encoder.
+framerate: 30
+# NVENC if available (RTX 4080 SUPER on the lab laptop). Falls back to
+# libx264 by editing this line.
+h264_encoder: h264_nvenc
+h264_bitrate: 2M
+
+# TLS is required by browsers for HTTP/2. HTTP/2 multiplexes all camera
+# streams over one TCP connection, which removes the 6-per-origin
+# HTTP/1.1 cap and lets all N cameras stay live at once. run.sh
+# auto-generates a self-signed cert+key on first launch.
+#
+# For Cloudflare-tunnel deployments, set tls: false and let the tunnel
+# terminate TLS at the edge — cleartext to/from this bridge is fine
+# inside the lab network.
+tls: true
+cert_path: cert.pem
+key_path: key.pem
+
+sources:
+  - name: right
+    base_url: https://192.168.1.13:8443
+    # web_video_server is fronted by Caddy with `tls internal` (local CA).
+    # On LAN we skip cert verification — traffic doesn't leave the lab.
+    insecure: true
+    cams: [3, 6, 8, 10, 12, 13, 15, 16]
+
+  # When the left-side camera host comes online, add:
+  # - name: left
+  #   base_url: https://<left-host>:8443
+  #   insecure: true
+  #   cams: [3, 6, 8, 10, 12, 13, 15, 16]

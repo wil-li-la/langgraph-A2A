@@ -42,3 +42,10 @@ backend/cure/
 
 # Claude Code agent state
 .claude/
+
+# Camera bridge: self-signed certs (regenerated per install) + binary distributions
+backend/cam_bridge/cert.pem
+backend/cam_bridge/key.pem
+backend/mediamtx/mediamtx
+backend/mediamtx/mediamtx_v*.tar.gz
+backend/mediamtx/*.bak

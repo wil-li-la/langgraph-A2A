@@ -1,0 +1,95 @@
+# MediaMTX config — RTSP fan-out for the ED305 lab cameras.
+#
+# Pulls H.264 from the camera-host RTSP server (delivered by
+# wil-li-la/ED305_pylon_ros#2) and re-publishes the same H.264 bytes to
+# browsers as WebRTC (low latency) and HLS-LL (high compatibility). No
+# transcoding on this host.
+#
+# Schema: MediaMTX v1.9.3.
+
+###############################################################################
+# global
+###############################################################################
+
+logLevel: info
+logDestinations: [stdout]
+
+api: no
+metrics: no
+pprof: no
+playback: no
+
+# We don't expose RTMP / SRT — disable to keep the surface area small.
+rtmp: no
+srt: no
+
+###############################################################################
+# RTSP (mostly for inference consumers — browser path is WebRTC/HLS)
+###############################################################################
+
+rtsp: yes
+protocols: [tcp]
+encryption: "no"
+rtspAddress: :8554
+rtspAuthMethods: [basic]
+
+###############################################################################
+# WebRTC (preferred browser path — sub-100 ms latency, native <video>)
+###############################################################################
+
+webrtc: yes
+webrtcAddress: :8889
+webrtcEncryption: yes
+# Reuse the cam_bridge self-signed cert if you've already trusted it in
+# Chrome.
+webrtcServerCert: ../cam_bridge/cert.pem
+webrtcServerKey: ../cam_bridge/key.pem
+webrtcAllowOrigin: "*"
+# Default ICE setup works for LAN host-candidates only. Add public STUN
+# if you ever tunnel this off-network.
+webrtcICEServers2: []
+
+###############################################################################
+# HLS-LL (fallback for browsers without WebRTC, or for embedded views)
+###############################################################################
+
+hls: yes
+hlsAddress: :8888
+hlsEncryption: yes
+hlsServerCert: ../cam_bridge/cert.pem
+hlsServerKey: ../cam_bridge/key.pem
+hlsAllowOrigin: "*"
+hlsVariant: lowLatency
+hlsAlwaysRemux: yes
+hlsSegmentDuration: 200ms
+hlsPartDuration: 100ms
+
+###############################################################################
+# Paths — one per camera. `source` is the upstream RTSP we pull from.
+###############################################################################
+
+paths:
+  cam_3:
+    source: rtsp://192.168.1.13:8554/cam_3
+    sourceOnDemand: no
+  cam_6:
+    source: rtsp://192.168.1.13:8554/cam_6
+    sourceOnDemand: no
+  cam_8:
+    source: rtsp://192.168.1.13:8554/cam_8
+    sourceOnDemand: no
+  cam_10:
+    source: rtsp://192.168.1.13:8554/cam_10
+    sourceOnDemand: no
+  cam_12:
+    source: rtsp://192.168.1.13:8554/cam_12
+    sourceOnDemand: no
+  cam_13:
+    source: rtsp://192.168.1.13:8554/cam_13
+    sourceOnDemand: no
+  cam_15:
+    source: rtsp://192.168.1.13:8554/cam_15
+    sourceOnDemand: no
+  cam_16:
+    source: rtsp://192.168.1.13:8554/cam_16
+    sourceOnDemand: no

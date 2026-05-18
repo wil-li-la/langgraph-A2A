@@ -24,12 +24,14 @@ Two layers:
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional, Union
 
+import cv2
 import msgpack
 import numpy as np
 import yaml
@@ -63,6 +65,12 @@ _DEFAULT_PORTS = {
     "arducam": 6000,
     "d435if": 6001,
     "d405": 6002,
+    # Head (top) camera: an independent publisher with its own wire format —
+    # single-part msgpack {ts_ns, h, w, encoding, data}. Color is JPEG bytes
+    # (encoding="rgb8" describes the *source*, not the bytes), depth is raw
+    # 16UC1. Distinct from the multi-part 6001 stream above.
+    "head_color": 6011,
+    "head_depth": 6010,
     "tts": 6101,
     "tts_status": 6102,
     "asr": 6103,
@@ -274,59 +282,28 @@ def listen_skill() -> str:
         sock.close()
 
 
-def _wrap_angle(a: float) -> float:
-    """Wrap to [-pi, pi] so the base always takes the shortest turn."""
-    return float((a + np.pi) % (2 * np.pi) - np.pi)
-
-
 def navigate_skill(object_name: str) -> None:
     """Drive the base to a named location from config.yaml `objects:`.
 
-    Reads current pose from the status stream, decomposes the XY motion
-    into rotate → translate → rotate, and sends each leg to the goto
-    REQ port. Mirrors cure.skills.navigate.navigate_skill.
+    Sends a single msgpack {"x", "y", "theta"} goal in the robot's odom frame
+    to the on-robot goto service (port `goto`), which plans and executes via
+    Nav2's `BasicNavigator.goToPose()`. Blocks until the server replies "ok".
+
+    Wire format must match the goto service in stretch3-zmq — see
+    docs/stretch_server_goto_refactor.md for the server-side contract.
     """
     cfg = get_config()
     if object_name not in cfg.objects:
         raise ValueError(f"Object {object_name} not found")
     tx, ty, ttheta = cfg.objects[object_name]
 
-    status_sock = _connect_sub(f"tcp://{SERVER_IP}:{cfg.ports['status']}")
     goto_sock = _connect_req(f"tcp://{SERVER_IP}:{cfg.ports['goto']}")
     try:
-        _, payload = _recv_fresh(status_sock, cfg.timing["max_age_ns"])
-        status = Status.from_bytes(payload)
-        sx = status.odometry.pose.x
-        sy = status.odometry.pose.y
-        stheta = status.odometry.pose.theta
-
-        dx, dy = tx - sx, ty - sy
-        angle_to_target = float(np.arctan2(dy, dx))
-        relative_angle = _wrap_angle(angle_to_target - stheta)
-
-        # Drive backwards if target is behind us — minimizes rotation.
-        if relative_angle > np.pi / 2:
-            relative_angle -= np.pi
-            distance = -float(np.sqrt(dx * dx + dy * dy))
-        elif relative_angle < -np.pi / 2:
-            relative_angle += np.pi
-            distance = -float(np.sqrt(dx * dx + dy * dy))
-        else:
-            distance = float(np.sqrt(dx * dx + dy * dy))
-
-        actual_heading = stheta + relative_angle
-
-        def _goto(linear: float, angular: float) -> None:
-            goto_sock.send(msgpack.packb({"linear": linear, "angular": angular}))
-            reply = goto_sock.recv_string()
-            if reply != "ok":
-                raise RuntimeError(f"goto failed: {reply}")
-
-        _goto(0.0, relative_angle)
-        _goto(distance, 0.0)
-        _goto(0.0, _wrap_angle(ttheta - actual_heading))
+        goto_sock.send(msgpack.packb({"x": float(tx), "y": float(ty), "theta": float(ttheta)}))
+        reply = goto_sock.recv_string()
+        if reply != "ok":
+            raise RuntimeError(f"goto failed: {reply}")
     finally:
-        status_sock.close()
         goto_sock.close()
 
 
@@ -385,6 +362,38 @@ def _move_and_wait(target_positions: list[float]) -> None:
         status_sock.close()
 
 
+def _read_current_joints(timeout_s: float = 1.0) -> tuple[float, ...]:
+    """Snapshot the latest 10-DOF joint positions from the status stream."""
+    cfg = get_config()
+    sock = _connect_sub(f"tcp://{SERVER_IP}:{cfg.ports['status']}")
+    try:
+        # max_age controls freshness; bound the overall wait via RCVTIMEO too.
+        sock.setsockopt(zmq.RCVTIMEO, int(timeout_s * 1000))
+        _, payload = _recv_fresh(sock, cfg.timing["max_age_ns"])
+        return Status.from_bytes(payload).joint_positions
+    finally:
+        sock.close()
+
+
+def look_around_skill(pan: float, tilt: float) -> None:
+    """Aim the head to (pan, tilt) radians, holding every other joint in place.
+
+    Reads the current joint positions and sends a ManipulatorCommand that
+    overrides only indices 7 (head_pan) and 8 (head_tilt). Indices 0,1
+    (base translate/rotate) are zeroed — matching handover_skill — so the
+    base does not move.
+    """
+    current = list(_read_current_joints())
+    if len(current) != 10:
+        raise RuntimeError(f"expected 10 joint positions, got {len(current)}")
+    target = list(current)
+    target[0] = 0.0
+    target[1] = 0.0
+    target[7] = float(pan)
+    target[8] = float(tilt)
+    _move_and_wait(target)
+
+
 def handover_skill() -> None:
     """3-step handover: present → release → reset arm.
 
@@ -437,6 +446,26 @@ def _dry_run() -> bool:
 def _dry_run_transcript() -> str:
     """Canned ASR response for listen() in dry-run mode. Override per-task via env."""
     return os.environ.get("DRY_RUN_TRANSCRIPT", "好的，我是病患")
+
+
+# Providers whose default chat model in app.llm.factory supports image input.
+# Ollama is excluded from auto-on because most local models are text-only; users
+# running llava / qwen2-vl / gemma3 can opt in with AGENT_VISION=1.
+_VISION_DEFAULT_PROVIDERS = {"openai", "google", "anthropic"}
+
+
+def _vision_enabled() -> bool:
+    """Whether take_photo should return image content blocks to the LLM.
+
+    Priority: explicit AGENT_VISION override → auto-detect from LLM_PROVIDER.
+    Read on every call so tests / agent.py callers can flip without restart.
+    """
+    explicit = os.environ.get("AGENT_VISION", "").lower()
+    if explicit in ("1", "true", "yes", "on"):
+        return True
+    if explicit in ("0", "false", "no", "off"):
+        return False
+    return os.environ.get("LLM_PROVIDER", "none").lower() in _VISION_DEFAULT_PROVIDERS
 
 
 # Optional: log tool calls to rerun if available, but never fail when it isn't.
@@ -644,6 +673,195 @@ def hand_over() -> str:
 
 
 @tool
+def look_around(pan_deg: float = 0.0, tilt_deg: float = 0.0) -> str:
+    """Aim the robot's head camera by setting pan and tilt angles (in degrees).
+
+    The robot's "top camera" (d435if) is mounted on the head, so this moves
+    the camera's field of view without moving the base or arm. Call this
+    to look at something, then call take_photo() to capture what you see.
+
+    Args:
+        pan_deg: Horizontal head rotation in degrees. Positive = look LEFT,
+                 negative = look RIGHT, 0 = straight ahead. Range: -210..90.
+        tilt_deg: Vertical head rotation in degrees. Positive = look UP,
+                  negative = look DOWN, 0 = horizon. Range: -85..45.
+
+    Returns:
+        Status string starting with "OK:" or a failure token.
+    """
+    if (b := _check_budget()): return b
+
+    PAN_MIN_DEG, PAN_MAX_DEG = -210.0, 90.0
+    TILT_MIN_DEG, TILT_MAX_DEG = -85.0, 45.0
+    if not (PAN_MIN_DEG <= pan_deg <= PAN_MAX_DEG):
+        return (
+            f"FAILED: pan_deg={pan_deg} out of range "
+            f"[{PAN_MIN_DEG}, {PAN_MAX_DEG}]."
+        )
+    if not (TILT_MIN_DEG <= tilt_deg <= TILT_MAX_DEG):
+        return (
+            f"FAILED: tilt_deg={tilt_deg} out of range "
+            f"[{TILT_MIN_DEG}, {TILT_MAX_DEG}]."
+        )
+
+    pan_rad = float(np.deg2rad(pan_deg))
+    tilt_rad = float(np.deg2rad(tilt_deg))
+
+    if _dry_run():
+        msg = (
+            f"[DRY_RUN] would aim head to pan={pan_deg}° ({pan_rad:.3f} rad), "
+            f"tilt={tilt_deg}° ({tilt_rad:.3f} rad). "
+            f"VALIDATION: head servos must reach target without colliding with arm."
+        )
+        logger.info(msg)
+        _rr_log("agent/tool/look_around", msg)
+        return f"OK [DRY_RUN]: head aimed to pan={pan_deg}°, tilt={tilt_deg}°. {msg}"
+
+    _rr_log(
+        "agent/tool/look_around",
+        f"aiming head to pan={pan_deg}°, tilt={tilt_deg}°",
+    )
+    try:
+        look_around_skill(pan_rad, tilt_rad)
+    except Exception as e:
+        _rr_log("agent/tool/look_around", f"FAILED: {e}", level="ERROR")
+        return f"FAILED: look_around raised: {e}"
+
+    return (
+        f"OK: head aimed to pan={pan_deg}°, tilt={tilt_deg}°. "
+        f"Call take_photo() to see what is in view."
+    )
+
+
+@tool
+def take_photo() -> Union[str, list]:
+    """Capture a single RGB frame from the robot's head camera (d435if).
+
+    The image is saved to disk and logged to the operator's monitoring tool
+    (Rerun). When the configured LLM is vision-capable, the image is also
+    returned inline as a content block so the model can SEE the scene.
+    Use after look_around() to inspect a specific direction.
+
+    Returns:
+        On success, either a "OK:" status string (text-only mode) or a list of
+        content blocks `[{"type":"text",...}, {"type":"image_url",...}]` (vision
+        mode). On failure, a string starting with FAILED:.
+    """
+    if (b := _check_budget()): return b
+
+    if _dry_run():
+        msg = (
+            "[DRY_RUN] would capture one RGB frame from head camera (d435if). "
+            "VALIDATION: stretch3-zmq driver must be publishing on the d435if port."
+        )
+        logger.info(msg)
+        _rr_log("agent/tool/take_photo", msg)
+        return f"OK [DRY_RUN]: captured photo. {msg}"
+
+    try:
+        frame, ts_ns = _capture_head_frame(timeout_s=5.0)
+    except Exception as e:
+        _rr_log("agent/tool/take_photo", f"FAILED: {e}", level="ERROR")
+        return f"FAILED: take_photo raised: {e}"
+
+    h, w = frame.shape[:2]
+    save_dir = Path(os.getenv("ROBOT_SCREENSHOT_DIR", "/tmp/robot_screenshots"))
+    save_dir.mkdir(parents=True, exist_ok=True)
+    path = save_dir / f"photo_{ts_ns}.jpg"
+    cv2.imwrite(str(path), frame)
+
+    if _HAS_RERUN:
+        try:
+            rr.log(
+                "agent/tool/take_photo/image",
+                rr.Image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)),
+            )
+        except Exception:
+            pass
+    _rr_log("agent/tool/take_photo", f"saved {path} ({w}x{h})")
+
+    text_summary = (
+        f"OK: captured {w}x{h} photo from head camera, saved to {path}."
+    )
+
+    if not _vision_enabled():
+        return (
+            f"{text_summary} (Vision disabled — the operator can view the image "
+            "in Rerun. Set AGENT_VISION=1 with a vision-capable LLM to see it "
+            "inline. To look elsewhere, call look_around() then take_photo() again.)"
+        )
+
+    # Encode JPEG and base64 for the LLM. cv2.imencode returns a bytes-like
+    # buffer already; quality 85 keeps payload small (~50-150KB) while
+    # remaining sharp enough for VLM reasoning.
+    ok, jpg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+    if not ok:
+        return (
+            f"{text_summary} (Failed to encode the image for the LLM; "
+            "operator can still view it in Rerun.)"
+        )
+    b64 = base64.b64encode(jpg.tobytes()).decode("ascii")
+    data_url = f"data:image/jpeg;base64,{b64}"
+
+    # OpenAI-style content blocks. langchain's ChatOpenAI, ChatAnthropic, and
+    # ChatGoogleGenerativeAI all accept this shape from ToolMessage.content
+    # and convert it to provider-native multimodal input internally.
+    return [
+        {
+            "type": "text",
+            "text": (
+                f"{text_summary} What you see is below. Reason from the image, "
+                "then decide your next action (call look_around() to look "
+                "elsewhere, navigate_to() to move, or another tool)."
+            ),
+        },
+        {"type": "image_url", "image_url": {"url": data_url}},
+    ]
+
+
+def _capture_head_frame(timeout_s: float = 5.0) -> tuple[np.ndarray, int]:
+    """Receive one color frame from the head/top camera (port head_color=6011).
+
+    Wire format (separate publisher from the d435if multi-part stream):
+        single ZMQ frame containing msgpack-encoded
+        {ts_ns, h, w, encoding, data}
+    where `data` is a JPEG-encoded buffer for color streams (the `encoding`
+    field describes the source format pre-encoding, not the bytes on the
+    wire). Returned frame is BGR uint8, ready for cv2.imwrite / imencode.
+    """
+    cfg = get_config()
+    sock = _ctx().socket(zmq.SUB)
+    sock.setsockopt(zmq.RCVHWM, 1)
+    sock.setsockopt(zmq.SUBSCRIBE, b"")  # publisher sends single-part frames
+    sock.setsockopt(zmq.RCVTIMEO, int(timeout_s * 1000))
+    sock.connect(f"tcp://{SERVER_IP}:{cfg.ports['head_color']}")
+    try:
+        raw = sock.recv()
+        msg = msgpack.unpackb(raw, raw=False)
+        ts_ns = int(msg.get("ts_ns", time.time_ns()))
+        data = msg.get("data")
+        if not isinstance(data, (bytes, bytearray)):
+            raise RuntimeError(
+                f"head camera frame missing 'data' field; got keys={list(msg.keys())}"
+            )
+        frame = cv2.imdecode(
+            np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR
+        )
+        if frame is None:
+            raise RuntimeError(
+                f"cv2 could not decode head camera buffer "
+                f"(encoding={msg.get('encoding')!r}, {len(data)} bytes)"
+            )
+        # The d435if is physically mounted rotated 90° CW on the Stretch head,
+        # so the publisher's raw frames come out sideways. Rotate CCW here so
+        # disk dumps and VLM input are right-side-up.
+        frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        return frame, ts_ns
+    finally:
+        sock.close()
+
+
+@tool
 def speak(text: str) -> str:
     """Make the robot say something out loud (text-to-speech). Blocks until done.
 
@@ -762,6 +980,8 @@ def get_robot_tools() -> list:
         hand_over,
         speak,
         listen,
+        look_around,
+        take_photo,
     ]
 
 

@@ -375,6 +375,24 @@ def _read_current_joints(timeout_s: float = 1.0) -> tuple[float, ...]:
         sock.close()
 
 
+def move_arm_skill(height_m: float) -> None:
+    """Set the lift (vertical arm position) to height_m meters.
+
+    Reads current joint positions and sends a ManipulatorCommand that
+    overrides only index 2 (lift). Base translate/rotate are zeroed (no-op,
+    same as handover_skill); arm extension and wrist remain wherever the
+    LLM last left them.
+    """
+    current = list(_read_current_joints())
+    if len(current) != 10:
+        raise RuntimeError(f"expected 10 joint positions, got {len(current)}")
+    target = list(current)
+    target[0] = 0.0
+    target[1] = 0.0
+    target[2] = float(height_m)
+    _move_and_wait(target)
+
+
 def look_around_skill(pan: float, tilt: float) -> None:
     """Aim the head to (pan, tilt) radians, holding every other joint in place.
 
@@ -673,6 +691,97 @@ def hand_over() -> str:
 
 
 @tool
+def move_arm(height_m: float) -> str:
+    """Raise or lower the robot arm to a target vertical height (meters).
+
+    Controls the `lift` joint only — the mast slider that moves the whole
+    arm assembly up and down. Horizontal arm extension and wrist pose are
+    not changed.
+
+    Args:
+        height_m: Target lift height in meters from the base. 0.15 = arm
+                  fully down (just clear of the base), ~1.05 = arm near
+                  the top of the mast. The cure handover pose uses 0.5.
+
+    Returns:
+        Status string starting with "OK:" or a failure token.
+    """
+    if (b := _check_budget()): return b
+
+    LIFT_MIN_M, LIFT_MAX_M = 0.15, 1.05
+    if not (LIFT_MIN_M <= height_m <= LIFT_MAX_M):
+        return (
+            f"FAILED: height_m={height_m} out of safe range "
+            f"[{LIFT_MIN_M}, {LIFT_MAX_M}] m."
+        )
+
+    if _dry_run():
+        msg = (
+            f"[DRY_RUN] would set lift to {height_m:.3f} m. "
+            f"VALIDATION: mast must reach target without colliding with the arm or environment."
+        )
+        logger.info(msg)
+        _rr_log("agent/tool/move_arm", msg)
+        return f"OK [DRY_RUN]: arm lift set to {height_m:.3f} m. {msg}"
+
+    _rr_log("agent/tool/move_arm", f"setting lift to {height_m:.3f} m")
+    try:
+        move_arm_skill(float(height_m))
+    except Exception as e:
+        _rr_log("agent/tool/move_arm", f"FAILED: {e}", level="ERROR")
+        return f"FAILED: move_arm raised: {e}"
+
+    return f"OK: arm lift set to {height_m:.3f} m."
+
+
+@tool
+def view_arm_camera() -> Union[str, list]:
+    """Capture a single RGB frame from the robot's arm/wrist camera (d405).
+
+    The wrist camera looks down past the gripper, so this is the right tool
+    when you need to see the workspace immediately in front of the arm —
+    e.g., to verify what you are about to grasp, or to confirm a placement.
+    For a wider scene view, use look_around() + take_photo() (head camera).
+
+    The image is saved to disk and logged to Rerun. When AGENT_VISION=1
+    (or LLM_PROVIDER is a vision-capable provider), the image is also
+    returned inline as a content block so the model can see it.
+
+    Returns:
+        On success, either a "OK:" status string (text-only mode) or a list
+        of content blocks `[{"type":"text",...}, {"type":"image_url",...}]`
+        (vision mode). On failure, a string starting with FAILED:.
+    """
+    if (b := _check_budget()): return b
+
+    if _dry_run():
+        msg = (
+            "[DRY_RUN] would capture one RGB frame from arm camera (d405). "
+            "VALIDATION: stretch3-zmq driver must be publishing on the d405 port."
+        )
+        logger.info(msg)
+        _rr_log("agent/tool/view_arm_camera", msg)
+        return f"OK [DRY_RUN]: captured arm-camera photo. {msg}"
+
+    try:
+        frame, ts_ns = _capture_arm_frame(timeout_s=5.0)
+    except Exception as e:
+        _rr_log("agent/tool/view_arm_camera", f"FAILED: {e}", level="ERROR")
+        return f"FAILED: view_arm_camera raised: {e}"
+
+    return _photo_response(
+        frame,
+        ts_ns,
+        file_prefix="arm",
+        rerun_channel="agent/tool/view_arm_camera",
+        camera_label="arm (d405 wrist) camera",
+        followup_hint=(
+            "call move_arm() or pick_up() if you want to act on what you see"
+        ),
+    )
+
+
+@tool
 def look_around(pan_deg: float = 0.0, tilt_deg: float = 0.0) -> str:
     """Aim the robot's head camera by setting pan and tilt angles (in degrees).
 
@@ -764,36 +873,63 @@ def take_photo() -> Union[str, list]:
         _rr_log("agent/tool/take_photo", f"FAILED: {e}", level="ERROR")
         return f"FAILED: take_photo raised: {e}"
 
+    return _photo_response(
+        frame,
+        ts_ns,
+        file_prefix="photo",
+        rerun_channel="agent/tool/take_photo",
+        camera_label="head camera",
+        followup_hint=(
+            "call look_around() to look elsewhere, then take_photo() again"
+        ),
+    )
+
+
+def _photo_response(
+    frame: np.ndarray,
+    ts_ns: int,
+    *,
+    file_prefix: str,
+    rerun_channel: str,
+    camera_label: str,
+    followup_hint: str,
+) -> Union[str, list]:
+    """Save a captured frame, log to Rerun, and produce the tool return value.
+
+    Shared by take_photo() (head camera) and view_arm_camera() (d405). Returns
+    either a plain "OK:" string (text-only mode) or a list of OpenAI-style
+    content blocks (vision mode) — the latter is what enables a vision-capable
+    LLM to actually see the image.
+    """
     h, w = frame.shape[:2]
     save_dir = Path(os.getenv("ROBOT_SCREENSHOT_DIR", "/tmp/robot_screenshots"))
     save_dir.mkdir(parents=True, exist_ok=True)
-    path = save_dir / f"photo_{ts_ns}.jpg"
+    path = save_dir / f"{file_prefix}_{ts_ns}.jpg"
     cv2.imwrite(str(path), frame)
 
     if _HAS_RERUN:
         try:
             rr.log(
-                "agent/tool/take_photo/image",
+                f"{rerun_channel}/image",
                 rr.Image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)),
             )
         except Exception:
             pass
-    _rr_log("agent/tool/take_photo", f"saved {path} ({w}x{h})")
+    _rr_log(rerun_channel, f"saved {path} ({w}x{h})")
 
     text_summary = (
-        f"OK: captured {w}x{h} photo from head camera, saved to {path}."
+        f"OK: captured {w}x{h} photo from {camera_label}, saved to {path}."
     )
 
     if not _vision_enabled():
         return (
             f"{text_summary} (Vision disabled — the operator can view the image "
             "in Rerun. Set AGENT_VISION=1 with a vision-capable LLM to see it "
-            "inline. To look elsewhere, call look_around() then take_photo() again.)"
+            f"inline. To get another view, {followup_hint}.)"
         )
 
-    # Encode JPEG and base64 for the LLM. cv2.imencode returns a bytes-like
-    # buffer already; quality 85 keeps payload small (~50-150KB) while
-    # remaining sharp enough for VLM reasoning.
+    # Encode JPEG and base64 for the LLM. Quality 85 keeps payloads under
+    # ~150KB while remaining sharp enough for VLM reasoning.
     ok, jpg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
     if not ok:
         return (
@@ -811,8 +947,7 @@ def take_photo() -> Union[str, list]:
             "type": "text",
             "text": (
                 f"{text_summary} What you see is below. Reason from the image, "
-                "then decide your next action (call look_around() to look "
-                "elsewhere, navigate_to() to move, or another tool)."
+                f"then decide your next action ({followup_hint}, or another tool)."
             ),
         },
         {"type": "image_url", "image_url": {"url": data_url}},
@@ -856,6 +991,49 @@ def _capture_head_frame(timeout_s: float = 5.0) -> tuple[np.ndarray, int]:
         # so the publisher's raw frames come out sideways. Rotate CCW here so
         # disk dumps and VLM input are right-side-up.
         frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        return frame, ts_ns
+    finally:
+        sock.close()
+
+
+def _capture_arm_frame(timeout_s: float = 5.0) -> tuple[np.ndarray, int]:
+    """Receive one color frame from the arm/wrist camera (d405, port 6002).
+
+    Uses the legacy stretch3-zmq multi-part wire format `[topic, ts, payload]`
+    with the payload blosc2-compressed (or raw, with cv2.imdecode fallback).
+    Mirrors the receive path in app.api.camera.mjpeg_generator. No physical
+    rotation needed — the d405 is mounted upright on the wrist.
+    """
+    cfg = get_config()
+    sock = _ctx().socket(zmq.SUB)
+    sock.setsockopt(zmq.RCVHWM, 1)
+    sock.setsockopt(zmq.SUBSCRIBE, b"rgb")
+    sock.setsockopt(zmq.RCVTIMEO, int(timeout_s * 1000))
+    sock.connect(f"tcp://{SERVER_IP}:{cfg.ports['d405']}")
+    try:
+        parts = sock.recv_multipart()
+        if not parts or parts[0] != b"rgb":
+            raise RuntimeError(
+                f"expected rgb topic, got {parts[0] if parts else 'empty'!r}"
+            )
+        ts_ns, payload = decode_with_timestamp(parts[1:])
+
+        try:
+            import blosc2  # type: ignore
+            raw = bytes(blosc2.decompress(payload))
+        except Exception:
+            raw = payload
+
+        if len(raw) == 640 * 480 * 3:
+            frame = np.frombuffer(raw, dtype=np.uint8).reshape(480, 640, 3)
+        elif len(raw) == 1280 * 720 * 3:
+            frame = np.frombuffer(raw, dtype=np.uint8).reshape(720, 1280, 3)
+        else:
+            frame = cv2.imdecode(np.frombuffer(payload, np.uint8), cv2.IMREAD_COLOR)
+        if frame is None:
+            raise RuntimeError(
+                f"failed to decode d405 frame (raw_len={len(raw)})"
+            )
         return frame, ts_ns
     finally:
         sock.close()
@@ -982,6 +1160,8 @@ def get_robot_tools() -> list:
         listen,
         look_around,
         take_photo,
+        move_arm,
+        view_arm_camera,
     ]
 
 

@@ -39,6 +39,10 @@ OPERATING PRINCIPLES
 - Use move_arm(height_m) to raise/lower the arm and view_arm_camera() to
   see what the wrist camera sees. Useful when you need a close-up of the
   workspace right in front of the gripper before pick_up() or hand_over().
+- Use set_gripper("open" / "close") for direct gripper control. Prefer
+  pick_up() for actual grasping (it verifies the object is held);
+  set_gripper is for releasing what you are holding or staging the
+  gripper before a manual attempt.
 - Before handing a medication to a patient, verify their identity by asking
   for their name with speak() and confirming via listen().
 - A tool result starting with BLOCKED:, FAILED:, or UNKNOWN_LOCATION: means

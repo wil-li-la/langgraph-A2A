@@ -375,6 +375,40 @@ def _read_current_joints(timeout_s: float = 1.0) -> tuple[float, ...]:
         sock.close()
 
 
+def set_gripper_skill(opening_value: float) -> None:
+    """Open or close the gripper by overriding only joint index 9.
+
+    `opening_value` is the raw gripper position (cure config units —
+    typically 0.0..100.0 with the driver clamping to [0.2, 4.86425]).
+    Use cfg.gripper["open"] / ["close"] for the canonical values rather
+    than hardcoding here.
+
+    The trapezoidal ETA in `_move_and_wait` underestimates the real
+    gripper settling time by ~1 s in measurements, so we additionally
+    poll the joint until it stops moving (or hit a 2 s ceiling). This
+    makes "OK: gripper open/close" honest about the gripper being at
+    rest.
+    """
+    current = list(_read_current_joints())
+    if len(current) != 10:
+        raise RuntimeError(f"expected 10 joint positions, got {len(current)}")
+    target = list(current)
+    target[0] = 0.0
+    target[1] = 0.0
+    target[9] = float(opening_value)
+    _move_and_wait(target)
+
+    # Poll until the gripper stops drifting, with a hard ceiling.
+    deadline = time.monotonic() + 2.0
+    last = float(_read_current_joints()[9])
+    while time.monotonic() < deadline:
+        time.sleep(0.2)
+        now = float(_read_current_joints()[9])
+        if abs(now - last) < 0.01:
+            return
+        last = now
+
+
 def move_arm_skill(height_m: float) -> None:
     """Set the lift (vertical arm position) to height_m meters.
 
@@ -732,6 +766,71 @@ def move_arm(height_m: float) -> str:
         return f"FAILED: move_arm raised: {e}"
 
     return f"OK: arm lift set to {height_m:.3f} m."
+
+
+@tool
+def set_gripper(state: str) -> str:
+    """Open or close the robot's gripper.
+
+    Opening the gripper releases whatever is held (so it will also clear
+    the robot's "holding" state). Closing the gripper alone does NOT count
+    as a successful grasp — use pick_up() for that; close_gripper here
+    is mainly for staging the gripper before a manual grasp attempt or
+    after dropping something accidentally.
+
+    Args:
+        state: "open" or "close" (also accepts "closed", "shut").
+
+    Returns:
+        Status string starting with "OK:" or a failure token.
+    """
+    if (b := _check_budget()): return b
+
+    s = (state or "").strip().lower()
+    if s == "open":
+        opening = float(get_config().gripper["open"])
+        action = "open"
+    elif s in ("close", "closed", "shut"):
+        opening = float(get_config().gripper["close"])
+        action = "close"
+    else:
+        return (
+            f"FAILED: state={state!r} not understood. "
+            "Use 'open' or 'close'."
+        )
+
+    if _dry_run():
+        msg = (
+            f"[DRY_RUN] would set gripper to {action} "
+            f"(joint index 9 = {opening}). "
+            f"VALIDATION: gripper servo must reach target without crushing the held object."
+        )
+        logger.info(msg)
+        _rr_log("agent/tool/set_gripper", msg)
+        if action == "open":
+            guard = get_guard()
+            if guard is not None and guard.holding is not None:
+                guard.holding = None
+        return f"OK [DRY_RUN]: gripper {action}. {msg}"
+
+    _rr_log("agent/tool/set_gripper", f"setting gripper to {action} ({opening})")
+    try:
+        set_gripper_skill(opening)
+    except Exception as e:
+        _rr_log("agent/tool/set_gripper", f"FAILED: {e}", level="ERROR")
+        return f"FAILED: set_gripper raised: {e}"
+
+    # Opening the gripper physically releases anything that was held.
+    # Mirror that in guard state so subsequent pick_up() preconditions
+    # don't think we're still holding something.
+    if action == "open":
+        guard = get_guard()
+        if guard is not None and guard.holding is not None:
+            released = guard.holding
+            guard.holding = None
+            return f"OK: gripper opened (released '{released}')."
+
+    return f"OK: gripper {action}."
 
 
 @tool
@@ -1162,6 +1261,7 @@ def get_robot_tools() -> list:
         take_photo,
         move_arm,
         view_arm_camera,
+        set_gripper,
     ]
 
 

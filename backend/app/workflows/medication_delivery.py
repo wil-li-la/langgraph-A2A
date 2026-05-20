@@ -18,6 +18,7 @@ from cure.skills.grasp import grasp_skill
 from cure.config import update_config, Config
 from app.tools.stretch_tools import (
     navigate_skill,
+    get_object_pose,
     handover_skill,
     speak_skill,
     wait_for_speech_completion,
@@ -194,9 +195,11 @@ def navigate_to_pharmacy_node(state: AgentState) -> dict:
     _log_node_entry("nav_to_pharmacy", state)
     _section("🚶", f"導航中: 前往藥局領取 {state['medication_name']}")
 
-    navigate_skill("medicine")
+    tx, ty, ttheta = get_object_pose("medicine")
+    _log("📍", f"藥局座標: x={tx:.3f}, y={ty:.3f}, θ={ttheta:.3f}")
+    navigate_skill(tx, ty, ttheta)
     # 目前無確認導航是否失敗
-    
+
     _log("✓", "已到達藥局")
     return {
         "current_location": "pharmacy",
@@ -241,10 +244,12 @@ def navigate_to_patient_node(state: AgentState) -> dict:
     """Navigate robot to patient room."""
     _log_node_entry("nav_to_patient", state)
     patient_name = state['patient_name']
-    
+
     #無需確認病人資料庫
     _section("🚶", f"導航中: 前往 {patient_name} 的病房")
-    navigate_skill("patient")
+    tx, ty, ttheta = get_object_pose("patient")
+    _log("📍", f"病房座標: x={tx:.3f}, y={ty:.3f}, θ={ttheta:.3f}")
+    navigate_skill(tx, ty, ttheta)
 
     #目前無需確認是否導航失敗
     _log("✓", "已到達病房")
@@ -375,7 +380,9 @@ def return_to_origin_node(state: AgentState) -> dict:
         }
 
     _section("🏠", f"返回原點: 從 {current_loc} 直接導航回充電座")
-    navigate_skill("origin")
+    tx, ty, ttheta = get_object_pose("origin")
+    _log("📍", f"原點座標: x={tx:.3f}, y={ty:.3f}, θ={ttheta:.3f}")
+    navigate_skill(tx, ty, ttheta)
 
     _log("✓", "已返回原點")
     return {
@@ -736,6 +743,8 @@ if __name__ == "__main__":
         _noop = lambda *a, **kw: True
         navigate_skill = _noop          # noqa: F811
         navigate_avoidance = _noop      # noqa: F811
+        # Return a sentinel pose so nodes can log it without needing a real config.
+        get_object_pose = lambda name: (0.0, 0.0, 0.0)  # noqa: F811
         grasp_skill = _noop             # noqa: F811
         speak_skill = lambda *a, **kw: "stub"  # noqa: F811
         wait_for_speech_completion = _noop      # noqa: F811

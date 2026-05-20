@@ -35,7 +35,13 @@ const BRIDGE_URL = cleanUrl(process.env.NEXT_PUBLIC_CAM_BRIDGE_URL)
 const RIGHT_URL = cleanUrl(process.env.NEXT_PUBLIC_PYLON_CAMS_RIGHT_URL)
 const LEFT_URL = cleanUrl(process.env.NEXT_PUBLIC_PYLON_CAMS_LEFT_URL)
 
-const CAM_IDS = [3, 6, 8, 10, 12, 13, 15, 16] as const
+// Per-side camera IDs (matches physical NIC-port assignment on each
+// pylon_cameras host). Right has 8, left has 5 (1, 2, 4, 5, 7) — left's
+// cam_3/6/8 weren't wired on its host as of May 2026.
+const CAM_IDS_BY_SIDE = {
+  right: [3, 6, 8, 10, 12, 13, 15, 16],
+  left: [1, 2, 4, 5, 7],
+} as const
 
 const STREAM_RETRY_MS = 5000
 
@@ -68,15 +74,14 @@ function buildCams(): Cam[] {
   const out: Cam[] = []
   for (const side of sides) {
     const direct = side === "right" ? RIGHT_URL : LEFT_URL
-    for (const id of CAM_IDS) {
-      // MediaMTX paths in our config are unprefixed (cam_<N>). When the
-      // left-host comes online and we add `left_cam_<N>` paths to
-      // mediamtx.yml, this naming scheme will need a small update.
+    for (const id of CAM_IDS_BY_SIDE[side]) {
+      // MediaMTX paths are namespaced `${side}_cam_<N>` so left + right
+      // don't collide when they share IDs.
       const cam: Cam = { side, id, label: `${side}_cam_${id}` }
       if (MODE === "hls") {
-        cam.hlsUrl = `${MEDIAMTX_HLS_URL}/cam_${id}/index.m3u8`
+        cam.hlsUrl = `${MEDIAMTX_HLS_URL}/${side}_cam_${id}/index.m3u8`
       } else if (MODE === "webrtc") {
-        cam.whepUrl = `${MEDIAMTX_WEBRTC_URL}/cam_${id}/whep`
+        cam.whepUrl = `${MEDIAMTX_WEBRTC_URL}/${side}_cam_${id}/whep`
       } else if (MODE === "h264") {
         cam.videoUrl = `${BRIDGE_URL}/cam/${side}/${id}/h264`
       } else {

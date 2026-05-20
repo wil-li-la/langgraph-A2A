@@ -76,27 +76,47 @@ hlsSegmentDuration: 1s
 ###############################################################################
 
 paths:
-  cam_3:
+  # Right side — 192.168.1.13. IDs match physical NIC port assignment
+  # (see pylon_cameras README on the camera host).
+  right_cam_3:
     source: rtsp://192.168.1.13:8554/cam_3
     sourceOnDemand: no
-  cam_6:
+  right_cam_6:
     source: rtsp://192.168.1.13:8554/cam_6
     sourceOnDemand: no
-  cam_8:
+  right_cam_8:
     source: rtsp://192.168.1.13:8554/cam_8
     sourceOnDemand: no
-  cam_10:
+  right_cam_10:
     source: rtsp://192.168.1.13:8554/cam_10
     sourceOnDemand: no
-  cam_12:
+  right_cam_12:
     source: rtsp://192.168.1.13:8554/cam_12
     sourceOnDemand: no
-  cam_13:
+  right_cam_13:
     source: rtsp://192.168.1.13:8554/cam_13
     sourceOnDemand: no
-  cam_15:
+  right_cam_15:
     source: rtsp://192.168.1.13:8554/cam_15
     sourceOnDemand: no
-  cam_16:
+  right_cam_16:
     source: rtsp://192.168.1.13:8554/cam_16
+    sourceOnDemand: no
+
+  # Left side — 192.168.1.56. cam_3/6/8 not yet wired on this host;
+  # `_pose` mount points produce malformed H.264 and are skipped.
+  left_cam_1:
+    source: rtsp://192.168.1.56:8554/cam_1
+    sourceOnDemand: no
+  left_cam_2:
+    source: rtsp://192.168.1.56:8554/cam_2
+    sourceOnDemand: no
+  left_cam_4:
+    source: rtsp://192.168.1.56:8554/cam_4
+    sourceOnDemand: no
+  left_cam_5:
+    source: rtsp://192.168.1.56:8554/cam_5
+    sourceOnDemand: no
+  left_cam_7:
+    source: rtsp://192.168.1.56:8554/cam_7
     sourceOnDemand: no

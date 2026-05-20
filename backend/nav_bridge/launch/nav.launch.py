@@ -138,11 +138,19 @@ def generate_launch_description() -> LaunchDescription:
 
     # Static TF: base_link → camera_depth_optical_frame
     # Approximate D435i mount; refine after a one-time calibration.
+    #
+    # The rotation maps ROS body convention (REP-103: x-fwd, y-left, z-up)
+    # to the optical-frame convention (REP-103: x-right, y-down, z-fwd).
+    # Without it, nvblox projects depth rays along base_link +z (straight
+    # up) instead of forward, the TSDF gets voxels allocated in a vertical
+    # pillar above the camera, marching-cubes finds no surfaces, and
+    # /nvblox_node/mesh publishes block_indices with empty vertices.
+    # yaw=-π/2, pitch=0, roll=-π/2 is the canonical body→optical rotation.
     static_tf_camera = Node(
         package="tf2_ros", executable="static_transform_publisher",
         name="base_to_camera_depth",
         # x y z yaw pitch roll parent child  — head cam, ~1.4 m up, looking forward
-        arguments=["0.05", "0.0", "1.40", "0", "0", "0",
+        arguments=["0.05", "0.0", "1.40", "-1.5707963", "0", "-1.5707963",
                    "base_link", "camera_depth_optical_frame"],
     )
     static_tf_color = Node(

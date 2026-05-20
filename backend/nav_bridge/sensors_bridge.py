@@ -21,8 +21,10 @@ from __future__ import annotations
 import argparse
 import math
 import threading
+import time
+import traceback
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 import cv2
 import msgpack
@@ -80,15 +82,51 @@ def _make_sub(ctx: zmq.Context, addr: str) -> zmq.Socket:
     return s
 
 
-def _zmq_drain_loop(addr: str, slot: LatestFrame, label: str) -> None:
+def _zmq_drain_loop(
+    addr: str,
+    slot: "LatestFrame",
+    label: str,
+    log_info: Callable[[str], None],
+    log_err: Callable[[str], None],
+) -> None:
+    """Drain ZMQ → slot, swallowing exceptions so the thread can't die silently.
+
+    Originally this only caught ZMQError, which meant any msgpack format error
+    (or any bug in `slot.put`) would kill the daemon thread without a single
+    log line — the rclpy timer would then spin forever on an always-empty
+    slot, and the corresponding /camera/* topic would publish 0 Hz with no
+    diagnostic to point at the cause. Now every iteration is wrapped, errors
+    land on the rclpy logger (so they show up in /rosout and the launch
+    terminal), and the loop continues.
+    """
     ctx = zmq.Context.instance()
     sock = _make_sub(ctx, addr)
+    log_info(f"{label}: drain thread connected to {addr}")
+    count = 0
+    window_start = time.monotonic()
     while True:
         try:
             payload = sock.recv()
             slot.put(msgpack.unpackb(payload, raw=False))
+            count += 1
+            now = time.monotonic()
+            elapsed = now - window_start
+            if elapsed >= 5.0:
+                log_info(
+                    f"{label}: drain={count} frames in {elapsed:.1f}s "
+                    f"({count / elapsed:.2f} Hz)"
+                )
+                count = 0
+                window_start = now
         except zmq.error.ZMQError as e:
-            print(f"[sensors_bridge] {label} zmq error: {e}", flush=True)
+            log_err(f"{label}: zmq error: {e!r}; continuing")
+        except Exception as e:
+            # The bug fix: previously this would kill the thread. Now the
+            # error is logged with a stack trace and the loop survives.
+            log_err(
+                f"{label}: drain caught {type(e).__name__}: {e!r}; "
+                f"continuing\n{traceback.format_exc()}"
+            )
 
 
 def _yaw_to_quat(theta: float) -> tuple[float, float, float, float]:
@@ -106,6 +144,15 @@ class SensorsBridge(Node):
         self._frame_id_color = "camera_color_optical_frame"
         self._frame_id_base = "base_link"
         self._frame_id_odom = "odom"
+
+        # Cached intrinsics — updated whenever a new camera_info arrives over
+        # ZMQ. We re-publish camera_info ALONGSIDE every depth/color frame
+        # using the image's timestamp, because nvblox uses image_exact_sync
+        # (header.stamp must match exactly between depth and depth/camera_info,
+        # likewise for color). Publishing the two streams on independent
+        # timers leaves the sync filter without a single matching pair.
+        self._intrinsics_lock = threading.Lock()
+        self._intrinsics: Optional[dict] = None
 
         # Publishers
         self.pub_depth = self.create_publisher(
@@ -129,22 +176,47 @@ class SensorsBridge(Node):
         self.pub_odom = self.create_publisher(Odometry, "/odom", SENSOR_QOS)
         self._prev_odom_sample: tuple[int, float, float, float] | None = None  # (ts_ns, x, y, theta)
 
-        # Spawn one drain thread per ZMQ topic
+        # Per-stream republish counters — paired with the drain-side counter
+        # in _zmq_drain_loop. If drain is high but publish is low we know
+        # the take/publish path is the issue; vice-versa points at ZMQ.
+        # Note: `camera_info` is intentionally not in this dict because its
+        # publishing rides along with depth and color (sister-publish using
+        # the image's timestamp) — its rate equals depth_pub + color_pub
+        # whenever intrinsics are cached. Standalone counter would be 0
+        # forever and read as a false alarm.
+        self._publish_counters: dict[str, int] = {
+            k: 0 for k in ("depth", "color", "odom_tf")
+        }
+        self._publish_window_start = time.monotonic()
+        self._publish_log_lock = threading.Lock()
+
+        # Spawn one drain thread per ZMQ topic. The drain thread takes
+        # rclpy log callables (info/err) so its messages land in /rosout
+        # and the launch terminal — diagnosable from outside.
+        logger = self.get_logger()
         for label, port in ports.items():
             addr = f"tcp://{robot_host}:{port}"
             t = threading.Thread(
                 target=_zmq_drain_loop,
-                args=(addr, self._slots[label], label),
+                args=(addr, self._slots[label], label,
+                      lambda m, _l=logger: _l.info(m),
+                      lambda m, _l=logger: _l.error(m)),
                 name=f"zmq-{label}",
                 daemon=True,
             )
             t.start()
             self.get_logger().info(f"subscribed {label} on {addr}")
 
-        # Republish timers — generous rates so we don't bottleneck
+        # Republish timers — generous rates so we don't bottleneck.
+        # camera_info has no dedicated timer: it rides along with each
+        # depth/color frame, sharing the image's timestamp (see comment
+        # above on _intrinsics — exact-sync requirement inside nvblox).
+        # We DO drain the camera_info ZMQ slot periodically to refresh
+        # the cached intrinsics, but those updates only matter when
+        # intrinsics change (they almost never do mid-session).
         self.create_timer(1.0 / 30.0, self._republish_depth)
         self.create_timer(1.0 / 30.0, self._republish_color)
-        self.create_timer(1.0 / 5.0, self._republish_camera_info)
+        self.create_timer(1.0 / 2.0, self._refresh_intrinsics)
         self.create_timer(1.0 / 100.0, self._republish_odom_tf)
 
     # ---- Helpers ----
@@ -155,14 +227,57 @@ class SensorsBridge(Node):
         h.stamp.nanosec = ts_ns % 1_000_000_000
         return h
 
+    def _bump_publish_counter(self, label: str) -> None:
+        """Per-republish hit counter; logs aggregated rates every 5s."""
+        with self._publish_log_lock:
+            self._publish_counters[label] += 1
+            now = time.monotonic()
+            elapsed = now - self._publish_window_start
+            if elapsed >= 5.0:
+                summary = ", ".join(
+                    f"{k}={v} ({v / elapsed:.2f} Hz)"
+                    for k, v in self._publish_counters.items()
+                )
+                self.get_logger().info(f"publish: {summary}")
+                for k in self._publish_counters:
+                    self._publish_counters[k] = 0
+                self._publish_window_start = now
+
     # ---- Republish callbacks ----
+
+    def _refresh_intrinsics(self) -> None:
+        m = self._slots["camera_info"].take()
+        if not m:
+            return
+        with self._intrinsics_lock:
+            self._intrinsics = m
+
+    def _build_camera_info(self, ts_ns: int, frame_id: str) -> Optional[CameraInfo]:
+        with self._intrinsics_lock:
+            m = self._intrinsics
+        if not m:
+            return None
+        info = CameraInfo()
+        info.header = self._stamp_from_ts_ns(ts_ns)
+        info.header.frame_id = frame_id
+        info.height = m["h"]
+        info.width = m["w"]
+        info.distortion_model = m.get("distortion_model", "plumb_bob")
+        info.d = list(m["D"])
+        info.k = list(m["K"])
+        info.r = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+        info.p = [m["K"][0], 0.0, m["K"][2], 0.0,
+                  0.0, m["K"][4], m["K"][5], 0.0,
+                  0.0, 0.0, 1.0, 0.0]
+        return info
 
     def _republish_depth(self) -> None:
         m = self._slots["depth"].take()
         if not m:
             return
+        ts_ns = int(m["ts_ns"])
         msg = Image()
-        msg.header = self._stamp_from_ts_ns(m["ts_ns"])
+        msg.header = self._stamp_from_ts_ns(ts_ns)
         msg.header.frame_id = self._frame_id_depth
         msg.height = m["h"]
         msg.width = m["w"]
@@ -171,6 +286,14 @@ class SensorsBridge(Node):
         msg.step = m["w"] * 2
         msg.data = m["data"]
         self.pub_depth.publish(msg)
+        self._bump_publish_counter("depth")
+
+        # Sister camera_info with the SAME timestamp — required for nvblox's
+        # image_exact_sync. Issue a paired publish on every depth frame so
+        # the sync filter inside nvblox always finds a match.
+        info = self._build_camera_info(ts_ns, self._frame_id_depth)
+        if info is not None:
+            self.pub_depth_info.publish(info)
 
     def _republish_color(self) -> None:
         m = self._slots["color"].take()
@@ -181,49 +304,29 @@ class SensorsBridge(Node):
         if bgr is None:
             self.get_logger().warning("color: jpeg decode failed", throttle_duration_sec=5.0)
             return
+        # nvblox's color integrator only accepts "rgb8" — it rejects "bgr8"
+        # with `Invalid color image encoding`. cv2.imdecode returns BGR, so
+        # convert to RGB before publishing.
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        ts_ns = int(m["ts_ns"])
         msg = Image()
-        msg.header = self._stamp_from_ts_ns(m["ts_ns"])
+        msg.header = self._stamp_from_ts_ns(ts_ns)
         msg.header.frame_id = self._frame_id_color
-        msg.height = bgr.shape[0]
-        msg.width = bgr.shape[1]
-        msg.encoding = "bgr8"
+        msg.height = rgb.shape[0]
+        msg.width = rgb.shape[1]
+        msg.encoding = "rgb8"
         msg.is_bigendian = 0
-        msg.step = bgr.shape[1] * 3
-        msg.data = bgr.tobytes()
+        msg.step = rgb.shape[1] * 3
+        msg.data = rgb.tobytes()
         self.pub_color.publish(msg)
+        self._bump_publish_counter("color")
 
-    def _republish_camera_info(self) -> None:
-        m = self._slots["camera_info"].take()
-        if not m:
-            return
-        # Depth intrinsics from the wire. nvblox needs depth + camera_info paired.
-        info_depth = CameraInfo()
-        info_depth.header = self._stamp_from_ts_ns(m["ts_ns"])
-        info_depth.header.frame_id = self._frame_id_depth
-        info_depth.height = m["h"]
-        info_depth.width = m["w"]
-        info_depth.distortion_model = m.get("distortion_model", "plumb_bob")
-        info_depth.d = list(m["D"])
-        info_depth.k = list(m["K"])
-        info_depth.r = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
-        info_depth.p = [m["K"][0], 0.0, m["K"][2], 0.0,
-                        0.0, m["K"][4], m["K"][5], 0.0,
-                        0.0, 0.0, 1.0, 0.0]
-        self.pub_depth_info.publish(info_depth)
-
-        # Color intrinsics: hardcoded placeholder identical to depth — refine in
-        # nav_bridge/config/nvblox.yaml once a one-time calibration is run.
-        info_color = CameraInfo()
-        info_color.header = self._stamp_from_ts_ns(m["ts_ns"])
-        info_color.header.frame_id = self._frame_id_color
-        info_color.height = m["h"]
-        info_color.width = m["w"]
-        info_color.distortion_model = m.get("distortion_model", "plumb_bob")
-        info_color.d = list(m["D"])
-        info_color.k = list(m["K"])
-        info_color.r = info_depth.r
-        info_color.p = info_depth.p
-        self.pub_color_info.publish(info_color)
+        # Sister camera_info with the same timestamp (see _republish_depth).
+        # Color intrinsics are placeholder-identical to depth until a one-time
+        # calibration is run — refine then.
+        info = self._build_camera_info(ts_ns, self._frame_id_color)
+        if info is not None:
+            self.pub_color_info.publish(info)
 
     def _republish_odom_tf(self) -> None:
         m = self._slots["odom_tf"].take()
@@ -283,6 +386,7 @@ class SensorsBridge(Node):
                 odom.twist.twist.angular.z = wz
         self._prev_odom_sample = (ts_ns, x, y, theta)
         self.pub_odom.publish(odom)
+        self._bump_publish_counter("odom_tf")
 
 
 def main() -> None:

@@ -282,24 +282,39 @@ def listen_skill() -> str:
         sock.close()
 
 
-def navigate_skill(object_name: str) -> None:
-    """Drive the base to a named location from config.yaml `objects:`.
+def get_object_pose(object_name: str) -> tuple[float, float, float]:
+    """Resolve a named target from config.yaml `objects:` to (x, y, theta).
 
-    Sends a single msgpack {"x", "y", "theta"} goal in the robot's odom frame
-    to the on-robot goto service (port `goto`), which plans and executes via
-    Nav2's `BasicNavigator.goToPose()`. Blocks until the server replies "ok".
-
-    Wire format must match the goto service in stretch3-zmq — see
-    docs/stretch_server_goto_refactor.md for the server-side contract.
+    Raises ValueError if the name isn't in the loaded config — callers should
+    surface this as an explicit "unknown location" error, not a navigation
+    failure.
     """
     cfg = get_config()
     if object_name not in cfg.objects:
-        raise ValueError(f"Object {object_name} not found")
-    tx, ty, ttheta = cfg.objects[object_name]
+        raise ValueError(f"Object {object_name!r} not found in robot config")
+    x, y, theta = cfg.objects[object_name]
+    return float(x), float(y), float(theta)
 
+
+def navigate_skill(x: float, y: float, theta: float) -> None:
+    """Drive the base to an absolute (x, y, theta) pose.
+
+    Sends a single msgpack {"x", "y", "theta"} goal to the on-robot goto
+    service (port `goto`), which proxies to the lab nav_service and plans
+    via Nav2's `BasicNavigator.goToPose()`. Blocks until the server replies
+    "ok"; raises RuntimeError with the server's status string on any other
+    reply (e.g. "no_path: ...", "timeout: ...", "obstructed: ...").
+
+    Wire format must match the goto service in stretch3-zmq — see
+    docs/stretch_server_goto_refactor.md for the server-side contract.
+
+    Callers that want to navigate by name should resolve coordinates with
+    `get_object_pose()` first, then pass them here.
+    """
+    cfg = get_config()
     goto_sock = _connect_req(f"tcp://{SERVER_IP}:{cfg.ports['goto']}")
     try:
-        goto_sock.send(msgpack.packb({"x": float(tx), "y": float(ty), "theta": float(ttheta)}))
+        goto_sock.send(msgpack.packb({"x": float(x), "y": float(y), "theta": float(theta)}))
         reply = goto_sock.recv_string()
         if reply != "ok":
             raise RuntimeError(f"goto failed: {reply}")
@@ -562,6 +577,16 @@ def navigate_to(location: str) -> str:
     Returns:
         Status string. Starts with "OK:" on success, or one of the
         recognizable failure tokens (BLOCKED, UNKNOWN_LOCATION, FAILED).
+
+    Worked example — "deliver aspirin to Mr. Wang in patient_room":
+        navigate_to("pharmacy")        # go pick up the medicine
+        pick_up("medicine")
+        navigate_to("patient_room")    # then go to the patient
+        hand_over()
+
+    If you get back UNKNOWN_LOCATION, do NOT retry the same name — the
+    error message lists the locations that DO exist. Pick one of those,
+    or call what_can_i_see() / ask the user.
     """
     if (b := _check_budget()): return b
 
@@ -580,10 +605,20 @@ def navigate_to(location: str) -> str:
             f"Known locations: {known}. Ask the user for guidance or pick one of these."
         )
 
+    try:
+        tx, ty, ttheta = get_object_pose(cure_target)
+    except ValueError as e:
+        _rr_log("agent/tool/navigate_to", f"pose lookup failed: {e}", level="ERROR")
+        return (
+            f"UNKNOWN_LOCATION: '{location}' resolves to '{cure_target}' but that "
+            f"name has no pose in the robot config. {e}"
+        )
+
     if _dry_run():
         msg = (
-            f"[DRY_RUN] would call navigate_skill({cure_target!r}). "
-            f"VALIDATION: config must know how to plan a path to '{cure_target}' and Nav2 must be running."
+            f"[DRY_RUN] would call navigate_skill(x={tx:.3f}, y={ty:.3f}, theta={ttheta:.3f}) "
+            f"for '{cure_target}'. "
+            f"VALIDATION: Nav2 must be running and able to plan a path to that pose."
         )
         logger.info(msg)
         _rr_log("agent/tool/navigate_to", msg)
@@ -591,9 +626,13 @@ def navigate_to(location: str) -> str:
             guard.record_navigate(location)
         return f"OK [DRY_RUN]: would arrive at {location}. {msg}"
 
-    _rr_log("agent/tool/navigate_to", f"navigating to {location} (target: {cure_target})")
+    _rr_log(
+        "agent/tool/navigate_to",
+        f"navigating to {location} (target: {cure_target}, "
+        f"pose: x={tx:.3f}, y={ty:.3f}, theta={ttheta:.3f})",
+    )
     try:
-        navigate_skill(cure_target)
+        navigate_skill(tx, ty, ttheta)
     except Exception as e:
         _rr_log("agent/tool/navigate_to", f"FAILED: {e}", level="ERROR")
         return f"FAILED: navigation to {location} failed: {e}"
@@ -618,6 +657,14 @@ def pick_up(object_name: str) -> str:
 
     Returns:
         Status string starting with "OK:" or a failure token.
+
+    Worked example — pick up the bottle of pills sitting on the pharmacy shelf:
+        navigate_to("pharmacy")        # must be at the shelf first
+        view_arm_camera()              # confirm the bottle is in view
+        pick_up("medicine")            # grasp it
+        # If pick_up returns FAILED, the bottle was not detected or the IK
+        # could not reach. Recover with move_arm() / look_around() to reposition,
+        # or ask the user. Do NOT keep retrying pick_up unchanged.
     """
     if (b := _check_budget()): return b
 
@@ -690,6 +737,16 @@ def hand_over() -> str:
 
     Returns:
         Status string starting with "OK:" or a failure token.
+
+    Worked example — give the medication to a verified patient:
+        speak("Mr. Wang, here is your aspirin. Please take it from me.")
+        hand_over()                          # arm extends, gripper opens
+        speak("Thank you. I will return to the dock.")
+        navigate_to("charging_dock")
+
+    Do not call hand_over() until you have verified the patient with
+    speak() / listen() — handing medication to the wrong person is the
+    worst failure mode for this robot.
     """
     if (b := _check_budget()): return b
 
@@ -739,6 +796,16 @@ def move_arm(height_m: float) -> str:
 
     Returns:
         Status string starting with "OK:" or a failure token.
+
+    Worked example — pick up an object from a low shelf:
+        move_arm(0.20)                       # lower the arm to shelf height
+        view_arm_camera()                    # confirm what is in front of gripper
+        pick_up("medicine")
+
+    Common height presets:
+        move_arm(0.20)   # low — floor / bottom shelf
+        move_arm(0.50)   # mid — table / handover height
+        move_arm(0.90)   # high — eye level / top shelf
     """
     if (b := _check_budget()): return b
 
@@ -783,6 +850,17 @@ def set_gripper(state: str) -> str:
 
     Returns:
         Status string starting with "OK:" or a failure token.
+
+    Worked example — recover after fumbling an object you were holding:
+        # guard.holding still says "medicine" but you just dropped it
+        set_gripper("open")        # clears holding state too
+        view_arm_camera()          # see where the object landed
+        # navigate / move_arm to reposition, then pick_up again
+
+    Or — stage gripper before a manual grasp attempt:
+        set_gripper("open")
+        move_arm(0.30)
+        pick_up("water bottle")    # closes gripper as part of grasping
     """
     if (b := _check_budget()): return b
 
@@ -850,6 +928,13 @@ def view_arm_camera() -> Union[str, list]:
         On success, either a "OK:" status string (text-only mode) or a list
         of content blocks `[{"type":"text",...}, {"type":"image_url",...}]`
         (vision mode). On failure, a string starting with FAILED:.
+
+    Worked example — verify the right object is under the gripper before grasping:
+        navigate_to("pharmacy")
+        move_arm(0.30)              # lower toward the shelf
+        view_arm_camera()           # see what is under the gripper
+        # If wrong item is visible, move_arm() / pan the base, look again.
+        pick_up("medicine")
     """
     if (b := _check_budget()): return b
 
@@ -896,6 +981,23 @@ def look_around(pan_deg: float = 0.0, tilt_deg: float = 0.0) -> str:
 
     Returns:
         Status string starting with "OK:" or a failure token.
+
+    Worked example — "find the medication bottle on the table to my right":
+        look_around(pan_deg=-45, tilt_deg=-25)   # head turns right and down
+        take_photo()                              # see what is on the table
+        # ... reason about the image, then act ...
+
+    Common aim presets:
+        look_around(0, 0)        # reset — eye-level, straight ahead
+        look_around(0, -30)      # look down at the workspace in front of the
+                                 # gripper (useful before pick_up)
+        look_around(0, 20)       # look slightly up — patient's face when the
+                                 # robot is at bedside
+        look_around(-45, 0)      # scan to the right (e.g., next bed over)
+        look_around(45, 0)       # scan to the left
+
+    Sign convention is from the robot's point of view: imagine you are the
+    robot. Positive pan rotates your head toward your own left hand.
     """
     if (b := _check_budget()): return b
 
@@ -954,6 +1056,15 @@ def take_photo() -> Union[str, list]:
         On success, either a "OK:" status string (text-only mode) or a list of
         content blocks `[{"type":"text",...}, {"type":"image_url",...}]` (vision
         mode). On failure, a string starting with FAILED:.
+
+    Worked example — scan for the patient in a room before approaching:
+        navigate_to("patient_room")
+        look_around(0, 0)           # face forward
+        take_photo()                # is the patient in view?
+        # If not, scan:
+        look_around(-45, 0); take_photo()
+        look_around(45, 0);  take_photo()
+        # Then act on what you saw.
     """
     if (b := _check_budget()): return b
 
@@ -1148,6 +1259,17 @@ def speak(text: str) -> str:
 
     Returns:
         Status string starting with "OK:" on completion or a failure token.
+
+    Worked example — verify patient identity before handing over medication:
+        speak("Hello, are you Mr. Wang?")
+        reply = listen()                     # returns "HEARD: yes I am" etc.
+        if "yes" in reply.lower() or "是" in reply:
+            hand_over()
+        else:
+            speak("I am sorry, I was looking for Mr. Wang. Goodbye.")
+
+    Match the user's language. Use short sentences (<15 words). The robot's
+    TTS quality drops on long or complex sentences.
     """
     if (b := _check_budget()): return b
 
@@ -1182,6 +1304,15 @@ def listen() -> str:
     Returns:
         The transcribed text on success, or a string starting with FAILED:
         on error / silence.
+
+    Worked example — pair with speak() in a question/answer loop. listen()
+    always follows speak() and never the other way around (the human is not
+    going to monologue at an idle robot):
+        speak("What is your name?")
+        reply = listen()           # e.g. "HEARD: 王小明" or "FAILED: heard nothing"
+        if reply.startswith("FAILED:"):
+            speak("I did not catch that. Could you repeat please?")
+            reply = listen()       # retry once, not in a loop
     """
     if (b := _check_budget()): return b
 
@@ -1217,6 +1348,16 @@ def what_can_i_see() -> str:
 
     Call this BEFORE planning navigation or grasping if you are unsure
     whether a target is in the robot's vocabulary. Does not move the robot.
+    Does NOT count against your tool-call budget — it's a free read.
+
+    Worked example — start of an open-ended task like "bring me my pills":
+        what_can_i_see()       # → shows: locations [pharmacy, patient_room, ...]
+                               #          objects   [medicine, pills, ...]
+                               #          state     location=charging_dock, holding=nothing
+        # Now you know "pills" is a recognized object and you start at the
+        # dock. Plan: navigate_to("pharmacy") -> pick_up("pills") -> ...
+
+    A call here is cheaper than a UNKNOWN_LOCATION / failed pick_up later.
     """
     # Intentionally NOT counted against budget — it's a free read.
     guard = get_guard()

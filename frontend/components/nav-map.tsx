@@ -5,12 +5,13 @@ import {
   fetchNavMap,
   postNavGoto,
   setNavPose,
-  subscribeNavStatus,
   type NavMapMetadata,
   type NavPose,
   type NavStatus,
   type NavTask,
 } from "@/lib/nav-api"
+import { useNavStatus } from "@/contexts/nav-status"
+import { navStatusColor } from "@/lib/nav-status"
 import { useRosTopic } from "@/hooks/use-ros-topic"
 import type { OccupancyGrid, Path } from "@/lib/ros-client"
 import {
@@ -49,13 +50,6 @@ interface DragState {
   currentWorld: { x: number; y: number }
 }
 
-function statusColor(status: NavStatus | null, state: NavTask["state"]): string {
-  if (state === "running" || state === "pending") return "text-blue-500"
-  if (state === "idle") return "text-muted-foreground"
-  if (status === "OK") return "text-green-500"
-  return "text-red-500"
-}
-
 interface LayerState {
   nvblox: boolean
   localCostmap: boolean
@@ -66,9 +60,7 @@ interface LayerState {
 export function NavMap() {
   const [meta, setMeta] = useState<NavMapMetadata | null>(null)
   const [metaError, setMetaError] = useState<string | null>(null)
-  const [pose, setPose] = useState<NavPose | null>(null)
-  const [task, setTask] = useState<NavTask | null>(null)
-  const [teleopActive, setTeleopActive] = useState(false)
+  const { pose, task, teleopActive } = useNavStatus()
   const [drag, setDrag] = useState<DragState | null>(null)
   const [layers, setLayers] = useState<LayerState>({
     nvblox: true,
@@ -97,19 +89,10 @@ export function NavMap() {
   )
   const planMsg = useRosTopic<Path>(layers.path ? "/plan" : null)
 
-  // ---- Bootstrap: fetch map metadata, subscribe to SSE pose+task stream
+  // ---- Bootstrap: fetch map metadata
 
   useEffect(() => {
     fetchNavMap().then(setMeta).catch((e) => setMetaError(String(e)))
-    const off = subscribeNavStatus(
-      (snap) => {
-        setPose(snap.pose)
-        setTask(snap.task)
-        setTeleopActive(snap.teleop_active)
-      },
-      () => { /* SSE may flicker on backend restart; EventSource auto-reconnects */ },
-    )
-    return off
   }, [])
 
   // ---- Coord conversions: world (metres, map frame) ↔ SVG pixel space.
@@ -482,7 +465,7 @@ function StatusBar({ pose, task }: { pose: NavPose | null; task: NavTask | null 
       {task && (
         <div>
           <span className="text-muted-foreground">nav:</span>{" "}
-          <span className={statusColor(task.status, task.state)}>
+          <span className={navStatusColor(task.status, task.state)}>
             {task.state === "done" ? task.status ?? "?" : task.state}
           </span>
           {task.reason && (

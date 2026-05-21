@@ -318,7 +318,7 @@ def navigate_skill(x: float, y: float, theta: float) -> None:
     docs/stretch_server_goto_refactor.md for the server-side contract.
 
     Callers that want to navigate by name should resolve coordinates with
-    `get_object_pose()` first, then pass them here.
+    `get_workflow_location()` first, then pass them here.
     """
     cfg = get_config()
     goto_sock = _connect_req(f"tcp://{SERVER_IP}:{cfg.ports['goto']}")

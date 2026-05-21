@@ -18,12 +18,22 @@ from cure.skills.grasp import grasp_skill
 from cure.config import update_config, Config
 from app.tools.stretch_tools import (
     navigate_skill,
-    get_object_pose,
+    get_workflow_location,
     handover_skill,
     speak_skill,
     wait_for_speech_completion,
     listen_skill,
 )
+
+# Identifier the dashboard and runtime location store use to scope this
+# workflow's pose registry. Must match the entry in
+# backend/app/api/workflow.py's _WORKFLOW_REGISTRY.
+WORKFLOW_ID = "medication_delivery"
+
+# Names this workflow looks up from the runtime location store. The
+# dashboard's Locations panel reads this list to show "required" markers
+# next to each name.
+REQUIRED_LOCATIONS: tuple[str, ...] = ("medicine", "patient", "origin")
 
 from app.skills.browser_input import browser_input_skill
 from app.mock_data import MockDatabase
@@ -195,7 +205,7 @@ def navigate_to_pharmacy_node(state: AgentState) -> dict:
     _log_node_entry("nav_to_pharmacy", state)
     _section("🚶", f"導航中: 前往藥局領取 {state['medication_name']}")
 
-    tx, ty, ttheta = get_object_pose("medicine")
+    tx, ty, ttheta = get_workflow_location(WORKFLOW_ID, "medicine")
     _log("📍", f"藥局座標: x={tx:.3f}, y={ty:.3f}, θ={ttheta:.3f}")
     navigate_skill(tx, ty, ttheta)
     # 目前無確認導航是否失敗
@@ -247,7 +257,7 @@ def navigate_to_patient_node(state: AgentState) -> dict:
 
     #無需確認病人資料庫
     _section("🚶", f"導航中: 前往 {patient_name} 的病房")
-    tx, ty, ttheta = get_object_pose("patient")
+    tx, ty, ttheta = get_workflow_location(WORKFLOW_ID, "patient")
     _log("📍", f"病房座標: x={tx:.3f}, y={ty:.3f}, θ={ttheta:.3f}")
     navigate_skill(tx, ty, ttheta)
 
@@ -380,7 +390,7 @@ def return_to_origin_node(state: AgentState) -> dict:
         }
 
     _section("🏠", f"返回原點: 從 {current_loc} 直接導航回充電座")
-    tx, ty, ttheta = get_object_pose("origin")
+    tx, ty, ttheta = get_workflow_location(WORKFLOW_ID, "origin")
     _log("📍", f"原點座標: x={tx:.3f}, y={ty:.3f}, θ={ttheta:.3f}")
     navigate_skill(tx, ty, ttheta)
 
@@ -744,7 +754,7 @@ if __name__ == "__main__":
         navigate_skill = _noop          # noqa: F811
         navigate_avoidance = _noop      # noqa: F811
         # Return a sentinel pose so nodes can log it without needing a real config.
-        get_object_pose = lambda name: (0.0, 0.0, 0.0)  # noqa: F811
+        get_workflow_location = lambda wf, name: (0.0, 0.0, 0.0)  # noqa: F811
         grasp_skill = _noop             # noqa: F811
         speak_skill = lambda *a, **kw: "stub"  # noqa: F811
         wait_for_speech_completion = _noop      # noqa: F811

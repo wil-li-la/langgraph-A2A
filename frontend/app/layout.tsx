@@ -4,6 +4,7 @@ import { AgentProvider } from '@/contexts/agent-context'
 import { RobotConnectionProvider } from '@/contexts/robot-connection'
 import { UIModeProvider } from '@/contexts/ui-mode-context'
 import { WorkflowProvider } from '@/contexts/workflow-context'
+import { NavStatusProvider } from '@/contexts/nav-status'
 
 import './globals.css'
 
@@ -26,11 +27,13 @@ export default function RootLayout({
       <body className="font-sans antialiased">
         <UIModeProvider>
           <RobotConnectionProvider>
-            <WorkflowProvider>
-              <AgentProvider>
-                {children}
-              </AgentProvider>
-            </WorkflowProvider>
+            <NavStatusProvider>
+              <WorkflowProvider>
+                <AgentProvider>
+                  {children}
+                </AgentProvider>
+              </WorkflowProvider>
+            </NavStatusProvider>
           </RobotConnectionProvider>
         </UIModeProvider>
       </body>

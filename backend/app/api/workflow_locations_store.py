@@ -66,6 +66,12 @@ def load(workflow_id: str) -> dict[str, Location]:
     except (OSError, json.JSONDecodeError) as e:
         logger.warning("locations cache unreadable at %s: %s", path, e)
         return {}
+    if not isinstance(raw, dict):
+        logger.warning(
+            "locations cache at %s has unexpected top-level type %s; ignoring",
+            path, type(raw).__name__,
+        )
+        return {}
     out: dict[str, Location] = {}
     for name, data in raw.items():
         if not isinstance(data, dict):

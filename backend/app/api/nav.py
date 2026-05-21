@@ -25,6 +25,9 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+import cv2
+import yaml
+
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
@@ -48,16 +51,37 @@ POSE_CACHE_PATH = Path(
               str(Path.home() / ".cache" / "langgraph-A2A" / "nav-pose.json"))
 )
 
-# Mirrors backend/maps/305/map.yaml — single source of truth for the dashboard
-# coord conversion. Update both files together if the map regenerates.
-MAP_METADATA = {
-    "image": "/maps/305_map.png",
-    "resolution": 0.006,
-    "origin": [-6.048, -4.6439, 0.0],
-    "width_px": 2059,
-    "height_px": 1259,
-    "frame_id": "map",
-}
+def _load_map_metadata() -> dict[str, Any]:
+    """Parse backend/maps/305/map.yaml + the referenced PGM to build the
+    metadata blob the frontend's /nav page renders against. Fatal on
+    error — we'd rather refuse to boot than serve a stale frame."""
+    map_dir = Path(__file__).resolve().parents[2] / "maps" / "305"
+    yaml_path = map_dir / "map.yaml"
+    with yaml_path.open() as f:
+        data = yaml.safe_load(f)
+    pgm_path = map_dir / data["image"]
+    pgm = cv2.imread(str(pgm_path), cv2.IMREAD_GRAYSCALE)
+    if pgm is None:
+        raise RuntimeError(f"cannot read map PGM at {pgm_path}")
+    height_px, width_px = pgm.shape
+    return {
+        "image": "/maps/305_map.png",   # frontend asset, derived from pgm_path
+        "resolution": float(data["resolution"]),
+        "origin": [float(x) for x in data["origin"]],
+        "width_px": int(width_px),
+        "height_px": int(height_px),
+        "frame_id": "map",
+    }
+
+
+MAP_METADATA = _load_map_metadata()
+logger.info(
+    "MAP_METADATA loaded: origin=%s resolution=%.4f size=%dx%d",
+    MAP_METADATA["origin"],
+    MAP_METADATA["resolution"],
+    MAP_METADATA["width_px"],
+    MAP_METADATA["height_px"],
+)
 
 # ----- State --------------------------------------------------------------
 

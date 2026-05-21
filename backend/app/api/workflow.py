@@ -5,11 +5,16 @@ import json
 import logging
 import threading
 import uuid
+from dataclasses import asdict
 from typing import AsyncGenerator
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
+
+from app.api import workflow_locations_store as locations_store
+from app.api.workflow_locations_store import InvalidIdentifierError
+from app.api import nav as nav_api   # for reading the current pose snapshot
 
 from app.api.camera import (
     stream_d405_rgb,
@@ -36,6 +41,16 @@ from app.skills.browser_input import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Workflows that expose teach-and-save UI on the dashboard.
+# When a new workflow lands, append it here.
+_WORKFLOW_REGISTRY: list[dict] = [
+    {
+        "id": "medication_delivery",
+        "required_locations": ["medicine", "patient", "origin"],
+    },
+]
+_REGISTERED_IDS = {w["id"] for w in _WORKFLOW_REGISTRY}
 
 # Singleton agent instance for executions
 _agent = MedicationDeliveryAgent()
@@ -689,6 +704,82 @@ async def get_skills(request: Request) -> JSONResponse:
         )
 
 
+async def get_workflows(_request: Request) -> JSONResponse:
+    return JSONResponse(_WORKFLOW_REGISTRY)
+
+
+def _check_workflow_id(workflow_id: str) -> JSONResponse | None:
+    if workflow_id not in _REGISTERED_IDS:
+        return JSONResponse(
+            {"error": f"unknown workflow_id: {workflow_id!r}"},
+            status_code=404,
+        )
+    return None
+
+
+async def list_workflow_locations(request: Request) -> JSONResponse:
+    workflow_id = request.path_params["workflow_id"]
+    err = _check_workflow_id(workflow_id)
+    if err:
+        return err
+    try:
+        store = locations_store.list_all(workflow_id)
+    except InvalidIdentifierError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return JSONResponse({n: asdict(loc) for n, loc in store.items()})
+
+
+async def put_workflow_location(request: Request) -> JSONResponse:
+    workflow_id = request.path_params["workflow_id"]
+    name = request.path_params["name"]
+    err = _check_workflow_id(workflow_id)
+    if err:
+        return err
+    body = await request.json()
+    try:
+        x = float(body["x"]); y = float(body["y"]); theta = float(body["theta"])
+    except (KeyError, TypeError, ValueError) as e:
+        return JSONResponse({"error": f"bad body: {e}"}, status_code=400)
+    try:
+        loc = locations_store.save_one(workflow_id, name, x, y, theta)
+    except InvalidIdentifierError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return JSONResponse(asdict(loc))
+
+
+async def teach_workflow_location(request: Request) -> JSONResponse:
+    workflow_id = request.path_params["workflow_id"]
+    name = request.path_params["name"]
+    err = _check_workflow_id(workflow_id)
+    if err:
+        return err
+    pose = nav_api._pose  # the current backend pose snapshot
+    if pose is None:
+        return JSONResponse({"error": "no_pose"}, status_code=409)
+    try:
+        loc = locations_store.save_one(
+            workflow_id, name, pose.x, pose.y, pose.theta,
+        )
+    except InvalidIdentifierError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return JSONResponse(asdict(loc))
+
+
+async def delete_workflow_location(request: Request) -> JSONResponse:
+    workflow_id = request.path_params["workflow_id"]
+    name = request.path_params["name"]
+    err = _check_workflow_id(workflow_id)
+    if err:
+        return err
+    try:
+        existed = locations_store.delete(workflow_id, name)
+    except InvalidIdentifierError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    if not existed:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return JSONResponse({"deleted": True})
+
+
 # Starlette route list to be mounted on the main app
 workflow_routes = [
     Route("/api/workflow", get_workflow, methods=["GET"]),
@@ -705,4 +796,13 @@ workflow_routes = [
     Route("/api/stream/d435if/rgb", stream_d435if_rgb, methods=["GET"]),
     Route("/api/stream/d435if/depth", stream_d435if_depth, methods=["GET"]),
     Route("/api/stream/d435if/mix", stream_d435if_mix, methods=["GET"]),
+    Route("/api/workflows", get_workflows, methods=["GET"]),
+    Route("/api/workflows/{workflow_id}/locations",
+          list_workflow_locations, methods=["GET"]),
+    Route("/api/workflows/{workflow_id}/locations/{name}",
+          put_workflow_location, methods=["PUT"]),
+    Route("/api/workflows/{workflow_id}/locations/{name}/teach",
+          teach_workflow_location, methods=["POST"]),
+    Route("/api/workflows/{workflow_id}/locations/{name}",
+          delete_workflow_location, methods=["DELETE"]),
 ]

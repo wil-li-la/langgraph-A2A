@@ -50,8 +50,39 @@ from app.tools.world_model import (
     KNOWN_GRASPABLE_OBJECTS,
     LOCATION_DESCRIPTIONS,
 )
+from app.api import workflow_locations_store as _locations_store
 
 logger = logging.getLogger(__name__)
+
+
+class LocationNotTaughtError(LookupError):
+    """A named location has no pose in the workflow's runtime store."""
+
+
+def get_workflow_location(
+    workflow_id: str, name: str,
+) -> tuple[float, float, float]:
+    """Resolve a named pose for `workflow_id` from the runtime store.
+
+    Raises `LocationNotTaughtError` if the name has not been taught yet —
+    callers must surface this to the operator, not silently substitute
+    a default.
+    """
+    locs = _locations_store.load(workflow_id)
+    if name not in locs:
+        raise LocationNotTaughtError(
+            f"Location {name!r} for workflow {workflow_id!r} has not been "
+            f"taught. Open the dashboard, drive the robot to the spot, and "
+            f"click Save in the {workflow_id} card's Locations panel."
+        )
+    loc = locs[name]
+    return float(loc.x), float(loc.y), float(loc.theta)
+
+
+# The LLM-driven delivery agent uses the same teach-and-save store as the
+# scripted medication_delivery workflow. If a new workflow gets an agentic
+# counterpart later, give it its own WORKFLOW_ID and override.
+_DELIVERY_AGENT_WORKFLOW_ID = "medication_delivery"
 
 
 # ---------- Robot connection + config ------------------------------------
@@ -117,7 +148,6 @@ class _RobotConfig:
         self.trapezoid: dict[str, tuple[float, float]] = dict(_DEFAULT_TRAPEZOID)
         self.handover: dict[str, float] = dict(_DEFAULT_HANDOVER)
         self.gripper: dict[str, float] = dict(_DEFAULT_GRIPPER)
-        self.objects: dict[str, tuple[float, float, float]] = {}
         self.cameras: dict[str, dict] = {}
         self._loaded = False
 
@@ -157,13 +187,6 @@ class _RobotConfig:
             if "v" in vals and "a" in vals:
                 self.trapezoid[joint] = (float(vals["v"]), float(vals["a"]))
 
-        for name, obj in (data.get("objects") or {}).items():
-            loc = obj.get("location") or {}
-            self.objects[name] = (
-                float(loc.get("x", 0.0)),
-                float(loc.get("y", 0.0)),
-                float(loc.get("theta", 0.0)),
-            )
         self.cameras = data.get("cameras") or {}
         self._loaded = True
 
@@ -280,20 +303,6 @@ def listen_skill() -> str:
         return sock.recv_string() or ""
     finally:
         sock.close()
-
-
-def get_object_pose(object_name: str) -> tuple[float, float, float]:
-    """Resolve a named target from config.yaml `objects:` to (x, y, theta).
-
-    Raises ValueError if the name isn't in the loaded config — callers should
-    surface this as an explicit "unknown location" error, not a navigation
-    failure.
-    """
-    cfg = get_config()
-    if object_name not in cfg.objects:
-        raise ValueError(f"Object {object_name!r} not found in robot config")
-    x, y, theta = cfg.objects[object_name]
-    return float(x), float(y), float(theta)
 
 
 def navigate_skill(x: float, y: float, theta: float) -> None:
@@ -606,13 +615,12 @@ def navigate_to(location: str) -> str:
         )
 
     try:
-        tx, ty, ttheta = get_object_pose(cure_target)
-    except ValueError as e:
-        _rr_log("agent/tool/navigate_to", f"pose lookup failed: {e}", level="ERROR")
-        return (
-            f"UNKNOWN_LOCATION: '{location}' resolves to '{cure_target}' but that "
-            f"name has no pose in the robot config. {e}"
+        tx, ty, ttheta = get_workflow_location(
+            _DELIVERY_AGENT_WORKFLOW_ID, cure_target,
         )
+    except LocationNotTaughtError as e:
+        _rr_log("agent/tool/navigate_to", f"pose lookup failed: {e}", level="ERROR")
+        return f"UNKNOWN_LOCATION: {e}"
 
     if _dry_run():
         msg = (

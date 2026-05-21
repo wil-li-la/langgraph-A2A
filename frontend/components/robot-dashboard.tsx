@@ -14,6 +14,7 @@ import { AgentTimeline } from "@/components/agent/agent-timeline"
 import { AgentInfo } from "@/components/agent/agent-info"
 import { useAgent } from "@/contexts/agent-context"
 import { useUIMode } from "@/contexts/ui-mode-context"
+import { LocationsPanel } from "@/components/locations-panel"
 
 export function RobotDashboard() {
   const { mode } = useUIMode()
@@ -179,6 +180,9 @@ export function RobotDashboard() {
                   highlightInstructionTick={highlightInstructionTick}
                 />
               </div>
+
+              {/* Per-workflow teach-and-save Locations panel */}
+              <LocationsPanel workflowId="medication_delivery" />
 
               {/* Pause guide */}
               {isPaused && pausedNodeId && pauseReason && (

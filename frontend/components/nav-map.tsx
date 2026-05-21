@@ -384,27 +384,32 @@ export function NavMap() {
 
           {/* Cursor coordinate readout. Hidden while dragging (drag preview
               already shows position) and while teleop owns the map. */}
-          {hover && !drag && !teleopActive && (
-            <g pointerEvents="none">
-              <rect
-                x={hover.px + 10}
-                y={hover.py - 22}
-                width={78}
-                height={16}
-                rx={3}
-                fill="rgba(0, 0, 0, 0.7)"
-              />
-              <text
-                x={hover.px + 14}
-                y={hover.py - 10}
-                fontSize="11"
-                fontFamily="monospace"
-                fill="white"
-              >
-                ({hover.x.toFixed(2)}, {hover.y.toFixed(2)})
-              </text>
-            </g>
-          )}
+          {hover && !drag && !teleopActive && (() => {
+            const label = `(${hover.x.toFixed(2)}, ${hover.y.toFixed(2)})`
+            // 11px monospace ≈ 6.6 px/char; +8 px padding (4 left + 4 right).
+            const pillW = label.length * 6.6 + 8
+            return (
+              <g pointerEvents="none">
+                <rect
+                  x={hover.px + 10}
+                  y={hover.py - 22}
+                  width={pillW}
+                  height={16}
+                  rx={3}
+                  fill="rgba(0, 0, 0, 0.7)"
+                />
+                <text
+                  x={hover.px + 14}
+                  y={hover.py - 10}
+                  fontSize="11"
+                  fontFamily="monospace"
+                  fill="white"
+                >
+                  {label}
+                </text>
+              </g>
+            )
+          })()}
         </svg>
       </div>
       <LayerControls layers={layers} setLayers={setLayers} />

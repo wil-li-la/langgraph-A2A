@@ -7,7 +7,6 @@ import {
   setNavPose,
   type NavMapMetadata,
   type NavPose,
-  type NavStatus,
   type NavTask,
 } from "@/lib/nav-api"
 import { useNavStatus } from "@/contexts/nav-status"

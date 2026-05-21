@@ -48,6 +48,13 @@ webrtcAllowOrigin: "*"
 # Default ICE setup works for LAN host-candidates only. Add public STUN
 # if you ever tunnel this off-network.
 webrtcICEServers2: []
+# Without this, MediaMTX advertises a host candidate for *every* local
+# interface (docker0, br-*, the wifi NIC at 192.168.1.100, ...). Browsers
+# whose ICE agent latches onto a docker-bridge or unreachable candidate
+# complete the STUN binding (host accepts on every interface) but never
+# receive RTP — the tile shows a black <video>. Restrict to the lab-LAN
+# wired interface so every session lands on a reachable IP.
+webrtcIPsFromInterfacesList: [eno2]
 
 ###############################################################################
 # HLS-LL (fallback for browsers without WebRTC, or for embedded views)

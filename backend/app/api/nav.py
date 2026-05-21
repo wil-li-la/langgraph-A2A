@@ -177,6 +177,11 @@ def is_nav_in_flight() -> bool:
     return _task.state in ("pending", "running")
 
 
+def get_current_pose() -> Pose | None:
+    """Return the latest known robot pose, or None if no pose has been set yet."""
+    return _pose
+
+
 def _bump():
     """Notify SSE subscribers that state changed."""
     _state_event.set()

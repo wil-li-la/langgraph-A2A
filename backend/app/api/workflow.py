@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import math
 import threading
 import uuid
 from dataclasses import asdict
@@ -737,13 +738,21 @@ async def put_workflow_location(request: Request) -> JSONResponse:
         return err
     body = await request.json()
     try:
-        x = float(body["x"]); y = float(body["y"]); theta = float(body["theta"])
+        x = float(body["x"])
+        y = float(body["y"])
+        theta = float(body["theta"])
     except (KeyError, TypeError, ValueError) as e:
         return JSONResponse({"error": f"bad body: {e}"}, status_code=400)
+    if not all(math.isfinite(v) for v in (x, y, theta)):
+        return JSONResponse(
+            {"error": "bad body: x/y/theta must be finite"},
+            status_code=400,
+        )
     try:
         loc = locations_store.save_one(workflow_id, name, x, y, theta)
     except InvalidIdentifierError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
+    logger.info("workflow %s location %r saved: x=%.3f y=%.3f theta=%.3f", workflow_id, name, x, y, theta)
     return JSONResponse(asdict(loc))
 
 
@@ -753,8 +762,9 @@ async def teach_workflow_location(request: Request) -> JSONResponse:
     err = _check_workflow_id(workflow_id)
     if err:
         return err
-    pose = nav_api._pose  # the current backend pose snapshot
+    pose = nav_api.get_current_pose()
     if pose is None:
+        logger.warning("teach %s/%s rejected: no current pose", workflow_id, name)
         return JSONResponse({"error": "no_pose"}, status_code=409)
     try:
         loc = locations_store.save_one(
@@ -762,6 +772,7 @@ async def teach_workflow_location(request: Request) -> JSONResponse:
         )
     except InvalidIdentifierError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
+    logger.info("workflow %s location %r taught from current pose: x=%.3f y=%.3f theta=%.3f", workflow_id, name, pose.x, pose.y, pose.theta)
     return JSONResponse(asdict(loc))
 
 
@@ -777,6 +788,7 @@ async def delete_workflow_location(request: Request) -> JSONResponse:
         return JSONResponse({"error": str(e)}, status_code=400)
     if not existed:
         return JSONResponse({"error": "not found"}, status_code=404)
+    logger.info("workflow %s location %r deleted", workflow_id, name)
     return JSONResponse({"deleted": True})
 
 

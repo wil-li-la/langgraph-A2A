@@ -61,6 +61,12 @@ export function NavMap() {
   const [metaError, setMetaError] = useState<string | null>(null)
   const { pose, task, teleopActive } = useNavStatus()
   const [drag, setDrag] = useState<DragState | null>(null)
+  const [hover, setHover] = useState<{
+    x: number
+    y: number
+    px: number
+    py: number
+  } | null>(null)
   const [layers, setLayers] = useState<LayerState>({
     nvblox: true,
     localCostmap: true,
@@ -159,10 +165,14 @@ export function NavMap() {
   }
 
   const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (!drag) return
     const w = eventToWorld(e)
     if (!w) return
-    setDrag({ ...drag, currentWorld: w })
+    if (!meta) return
+    const { px, py } = worldToPx(w.x, w.y)
+    setHover({ x: w.x, y: w.y, px, py })
+    if (drag) {
+      setDrag({ ...drag, currentWorld: w })
+    }
   }
 
   const onPointerUp = async (e: React.PointerEvent<SVGSVGElement>) => {
@@ -270,6 +280,7 @@ export function NavMap() {
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
+          onPointerLeave={() => setHover(null)}
         >
           <image
             href={meta.image}
@@ -370,6 +381,30 @@ export function NavMap() {
               </g>
             )
           })()}
+
+          {/* Cursor coordinate readout. Hidden while dragging (drag preview
+              already shows position) and while teleop owns the map. */}
+          {hover && !drag && !teleopActive && (
+            <g pointerEvents="none">
+              <rect
+                x={hover.px + 10}
+                y={hover.py - 22}
+                width={78}
+                height={16}
+                rx={3}
+                fill="rgba(0, 0, 0, 0.7)"
+              />
+              <text
+                x={hover.px + 14}
+                y={hover.py - 10}
+                fontSize="11"
+                fontFamily="monospace"
+                fill="white"
+              >
+                ({hover.x.toFixed(2)}, {hover.y.toFixed(2)})
+              </text>
+            </g>
+          )}
         </svg>
       </div>
       <LayerControls layers={layers} setLayers={setLayers} />

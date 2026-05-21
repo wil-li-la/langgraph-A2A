@@ -19,6 +19,7 @@ from cure.config import update_config, Config
 from app.tools.stretch_tools import (
     navigate_skill,
     get_workflow_location,
+    LocationNotTaughtError,
     handover_skill,
     speak_skill,
     wait_for_speech_completion,
@@ -205,7 +206,12 @@ def navigate_to_pharmacy_node(state: AgentState) -> dict:
     _log_node_entry("nav_to_pharmacy", state)
     _section("🚶", f"導航中: 前往藥局領取 {state['medication_name']}")
 
-    tx, ty, ttheta = get_workflow_location(WORKFLOW_ID, "medicine")
+    try:
+        tx, ty, ttheta = get_workflow_location(WORKFLOW_ID, "medicine")
+    except LocationNotTaughtError as e:
+        _log("✗", f"藥局位置尚未設定: {e}")
+        return _fail("nav_to_pharmacy", "location_not_taught", str(e),
+                     "✗ 藥局位置尚未在儀表板教學")
     _log("📍", f"藥局座標: x={tx:.3f}, y={ty:.3f}, θ={ttheta:.3f}")
     navigate_skill(tx, ty, ttheta)
     # 目前無確認導航是否失敗
@@ -257,7 +263,12 @@ def navigate_to_patient_node(state: AgentState) -> dict:
 
     #無需確認病人資料庫
     _section("🚶", f"導航中: 前往 {patient_name} 的病房")
-    tx, ty, ttheta = get_workflow_location(WORKFLOW_ID, "patient")
+    try:
+        tx, ty, ttheta = get_workflow_location(WORKFLOW_ID, "patient")
+    except LocationNotTaughtError as e:
+        _log("✗", f"病房位置尚未設定: {e}")
+        return _fail("nav_to_patient", "location_not_taught", str(e),
+                     "✗ 病房位置尚未在儀表板教學")
     _log("📍", f"病房座標: x={tx:.3f}, y={ty:.3f}, θ={ttheta:.3f}")
     navigate_skill(tx, ty, ttheta)
 
@@ -390,7 +401,12 @@ def return_to_origin_node(state: AgentState) -> dict:
         }
 
     _section("🏠", f"返回原點: 從 {current_loc} 直接導航回充電座")
-    tx, ty, ttheta = get_workflow_location(WORKFLOW_ID, "origin")
+    try:
+        tx, ty, ttheta = get_workflow_location(WORKFLOW_ID, "origin")
+    except LocationNotTaughtError as e:
+        _log("✗", f"原點位置尚未設定: {e}")
+        return _fail("return_to_origin", "location_not_taught", str(e),
+                     "✗ 原點位置尚未在儀表板教學")
     _log("📍", f"原點座標: x={tx:.3f}, y={ty:.3f}, θ={ttheta:.3f}")
     navigate_skill(tx, ty, ttheta)
 

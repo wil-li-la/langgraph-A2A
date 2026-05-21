@@ -5,12 +5,14 @@ import { usePathname } from "next/navigation"
 import { useRobotConnection } from "@/contexts/robot-connection"
 import { ModeToggle } from "@/components/mode-toggle"
 import type { WorkflowState } from "@/hooks/use-workflow"
+import { useNavStatus } from "@/contexts/nav-status"
+import { navStatusColor } from "@/lib/nav-status"
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
   { href: "/teleop", label: "Teleop" },
   { href: "/nav", label: "Map Nav" },
-  { href: "/viz", label: "Visualization" },
+  { href: "/recon", label: "3D Recon" },
   { href: "/cameras", label: "Room Cameras" },
 ] as const;
 
@@ -21,6 +23,11 @@ interface NavBarProps {
 export function NavBar({ workflowState = "idle" }: NavBarProps) {
   const pathname = usePathname();
   const { robotHost, setRobotHost, isConnected, connectionError, handleConnect, disconnect } = useRobotConnection();
+  const { pose, task } = useNavStatus()
+  const navState = task?.state ?? "idle"
+  const navLabel =
+    navState === "done" ? (task?.status ?? "?") : navState
+  const navColor = navStatusColor(task?.status ?? null, navState)
   const teleopLocked = workflowState === "running"
 
   const errorLabel =
@@ -81,6 +88,19 @@ export function NavBar({ workflowState = "idle" }: NavBarProps) {
               <span className="relative inline-flex h-2 w-2 rounded-full bg-current" />
               <span className="font-medium">{errorLabel}</span>
             </span>
+          )}
+        </div>
+
+        {/* Live nav-status + pose indicator. Single SSE, shared across pages. */}
+        <div className="hidden items-center gap-2 font-mono text-xs sm:flex">
+          <span className="text-muted-foreground">nav:</span>
+          <span className={navColor}>{navLabel}</span>
+          {pose ? (
+            <span className="text-foreground">
+              ({pose.x.toFixed(2)}, {pose.y.toFixed(2)})
+            </span>
+          ) : (
+            <span className="text-muted-foreground">(—, —)</span>
           )}
         </div>
 

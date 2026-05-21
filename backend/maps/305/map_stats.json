@@ -10,25 +10,19 @@
   "resolution_m": 0.006,
   "padding_m": 0.3,
   "grid_size_px": [
-    2357,
-    1861
+    2059,
+    1259
   ],
-  "world_to_map_rotation_deg": 0.0,
+  "world_to_map_rotation_deg": 161.0037612915039,
   "world_to_map_pivot_xy": [
-    0.0,
-    0.0
-  ],
-  "map_origin_in_map_frame": [
-    -7.184580902847442,
-    -7.0851230425867575
-  ],
-  "occupied_cells": 703921,
-  "free_cells": 1552905,
-  "unknown_cells": 2129551,
-  "baked_from": "raw/map.pgm",
-  "baked_world_to_map_rotation_deg_applied": 161.0037612915039,
-  "baked_world_to_map_pivot_xy_applied": [
     -0.04947328567504883,
     -1.1679987907409668
-  ]
+  ],
+  "map_origin_in_map_frame": [
+    -6.047965233325958,
+    -4.643895895481109
+  ],
+  "occupied_cells": 703972,
+  "free_cells": 1552867,
+  "unknown_cells": 341538
 }

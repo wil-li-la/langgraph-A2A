@@ -390,20 +390,48 @@ async def _poll_localization_forever() -> None:
     """Background loop: poll nav_service status REP at 1 Hz, push diffs
     onto the SSE stream. A single failure (nav_service down, network)
     sets _localization to None and keeps trying — operator sees the
-    indicator go grey, not stuck on the last good value."""
-    global _localization
+    indicator go grey, not stuck on the last good value.
+
+    When the reply contains a non-null pose, overwrite _pose with
+    source="localizer" so the dashboard's robot dot tracks AMCL in
+    real time. When the reply has no pose (AMCL not yet publishing,
+    nav_service down), _pose is left alone so the cached/manual seed
+    persists as a fallback display.
+    """
+    global _localization, _pose
     while True:
-        prev = _localization
+        prev_loc = _localization
+        prev_pose = _pose
         try:
             reply = await asyncio.to_thread(
                 _zmq_request_blocking, {}, 1.0, NAV_STATUS_PORT
             )
             _localization = reply.get("localization")
+            pose_xyt = reply.get("pose")
         except Exception as e:
             if _localization is not None:
                 logger.warning("localization poll failed: %s", e)
             _localization = None
-        if _localization != prev:
+            pose_xyt = None
+
+        if pose_xyt is not None:
+            try:
+                x, y, theta = (float(pose_xyt[0]), float(pose_xyt[1]),
+                               float(pose_xyt[2]))
+                # Only overwrite if numerically different to keep SSE quiet
+                # while the robot is at rest. 0.1 mm / ~0.006° is well below
+                # AMCL's per-tick noise.
+                if (_pose is None
+                        or _pose.source != "localizer"
+                        or abs(_pose.x - x) > 1e-4
+                        or abs(_pose.y - y) > 1e-4
+                        or abs(_pose.theta - theta) > 1e-4):
+                    _pose = Pose(x=x, y=y, theta=theta, source="localizer")
+            except (TypeError, ValueError, IndexError) as e:
+                logger.warning("malformed pose in status reply: %r (%s)",
+                               pose_xyt, e)
+
+        if _localization != prev_loc or _pose is not prev_pose:
             _bump()
         await asyncio.sleep(LOCALIZATION_POLL_INTERVAL_S)
 

@@ -19,6 +19,7 @@ import {
   STYLE_LOCAL_COSTMAP,
   STYLE_NVBLOX_2D,
 } from "@/lib/occupancy-grid"
+import { eventToWorld as eventToWorldShared, pxToWorld as pxToWorldShared, worldToPx as worldToPxShared } from "@/lib/map-coords"
 
 /**
  * Interactive room-305 map. Renders the static .pgm preview, overlays the
@@ -101,44 +102,23 @@ export function NavMap() {
   }, [])
 
   // ---- Coord conversions: world (metres, map frame) ↔ SVG pixel space.
-  // SVG viewBox uses the map's pixel dimensions; world origin is the
-  // bottom-left, so y is flipped.
+  // Backed by lib/map-coords.ts so the dashboard's workflow map uses the
+  // same implementation. SVG viewBox uses the map's pixel dimensions;
+  // world origin is the bottom-left, so y is flipped.
 
   const worldToPx = useCallback(
-    (x: number, y: number) => {
-      if (!meta) return { px: 0, py: 0 }
-      return {
-        px: (x - meta.origin[0]) / meta.resolution,
-        py: meta.height_px - (y - meta.origin[1]) / meta.resolution,
-      }
-    },
+    (x: number, y: number) => worldToPxShared(meta, x, y),
     [meta],
   )
 
   const pxToWorld = useCallback(
-    (px: number, py: number) => {
-      if (!meta) return { x: 0, y: 0 }
-      return {
-        x: px * meta.resolution + meta.origin[0],
-        y: (meta.height_px - py) * meta.resolution + meta.origin[1],
-      }
-    },
+    (px: number, py: number) => pxToWorldShared(meta, px, py),
     [meta],
   )
 
   const eventToWorld = useCallback(
-    (e: React.PointerEvent<SVGSVGElement>) => {
-      const svg = svgRef.current
-      if (!svg) return null
-      const pt = svg.createSVGPoint()
-      pt.x = e.clientX
-      pt.y = e.clientY
-      const ctm = svg.getScreenCTM()
-      if (!ctm) return null
-      const local = pt.matrixTransform(ctm.inverse())
-      return pxToWorld(local.x, local.y)
-    },
-    [pxToWorld],
+    (e: React.PointerEvent<SVGSVGElement>) => eventToWorldShared(svgRef.current, meta, e),
+    [meta],
   )
 
   // ---- Drag interaction

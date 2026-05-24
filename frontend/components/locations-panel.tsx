@@ -6,10 +6,12 @@ import {
   deleteWorkflowLocation,
   fetchWorkflowManifest,
   listWorkflowLocations,
+  setWorkflowLocation,
   teachWorkflowLocation,
   type Location,
   type WorkflowManifest,
 } from "@/lib/workflow-locations-api"
+import { WorkflowLocationsMap } from "@/components/workflow-locations-map"
 
 interface Props {
   workflowId: string
@@ -41,7 +43,11 @@ export function LocationsPanel({ workflowId }: Props) {
       setManifest(m)
       setStored(locs)
       if (m && m.required_locations.length > 0) {
-        setSelectedName(m.required_locations[0])
+        // Default to the first required name that has not been taught yet,
+        // so the operator's first drag/save targets it. Falls back to the
+        // first required name once everything is taught (re-author flow).
+        const nextMissing = m.required_locations.find((n) => !(n in locs))
+        setSelectedName(nextMissing ?? m.required_locations[0])
       }
     }).catch((e) => !cancelled && setError(String(e)))
     return () => { cancelled = true }
@@ -80,6 +86,21 @@ export function LocationsPanel({ workflowId }: Props) {
       setBusy(false)
     }
   }
+
+  const handleAuthored = useCallback(
+    async (name: string, pose: { x: number; y: number; theta: number }) => {
+      setBusy(true); setError(null)
+      try {
+        await setWorkflowLocation(workflowId, name, pose)
+        await refresh()
+      } catch (e) {
+        setError(String(e))
+      } finally {
+        setBusy(false)
+      }
+    },
+    [workflowId, refresh],
+  )
 
   if (!manifest) {
     return (
@@ -133,6 +154,19 @@ export function LocationsPanel({ workflowId }: Props) {
         >
           {busy ? "saving…" : "Save"}
         </button>
+      </div>
+
+      <div className="border-t border-border pt-2">
+        <div className="mb-1 text-muted-foreground">
+          Drag on the map to author <span className="text-foreground">{selectedName}</span>:
+        </div>
+        <WorkflowLocationsMap
+          workflowId={workflowId}
+          locations={stored}
+          selectedName={selectedName}
+          onAuthored={handleAuthored}
+          disabled={busy}
+        />
       </div>
 
       {Object.keys(stored).length > 0 && (

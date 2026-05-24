@@ -48,6 +48,19 @@ export interface NavMapMetadata {
   frame_id: string
 }
 
+export type NavLocalizationState =
+  | "ok"
+  | "uncertain"
+  | "dead-reckon"
+  | "unseeded"
+
+export interface NavLocalization {
+  state: NavLocalizationState
+  cov_xy_m: number | null
+  cov_yaw_rad: number | null
+  scan_age_s: number | null
+}
+
 export interface NavSnapshot {
   pose: NavPose | null
   task: NavTask
@@ -58,6 +71,11 @@ export interface NavSnapshot {
    * should disable drive controls when `task.state` is "pending"/"running".
    */
   teleop_active: boolean
+  /**
+   * AMCL localization health from nav_service. null when nav_service is
+   * unreachable; the indicator should go grey in that case.
+   */
+  localization: NavLocalization | null
 }
 
 export async function fetchNavMap(): Promise<NavMapMetadata> {

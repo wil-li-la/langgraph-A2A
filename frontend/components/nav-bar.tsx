@@ -7,6 +7,25 @@ import { ModeToggle } from "@/components/mode-toggle"
 import type { WorkflowState } from "@/hooks/use-workflow"
 import { useNavStatus } from "@/contexts/nav-status"
 import { navStatusColor } from "@/lib/nav-status"
+import type { NavLocalization } from "@/lib/nav-api"
+
+// AMCL pose-health → dot colour. Grey = nav_service unreachable.
+function localizationDotClass(loc: NavLocalization | null): string {
+  switch (loc?.state) {
+    case "ok":          return "bg-emerald-500"
+    case "uncertain":   return "bg-amber-400"
+    case "dead-reckon": return "bg-amber-400"
+    case "unseeded":    return "bg-amber-400"
+    default:            return "bg-slate-500"
+  }
+}
+
+function localizationTooltip(loc: NavLocalization | null): string {
+  if (!loc) return "localization: nav_service unreachable"
+  const cov = loc.cov_xy_m != null ? loc.cov_xy_m.toFixed(2) : "—"
+  const scan = loc.scan_age_s != null ? loc.scan_age_s.toFixed(1) : "—"
+  return `localization: ${loc.state} (cov_xy=${cov} m², scan_age=${scan} s)`
+}
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
@@ -23,7 +42,7 @@ interface NavBarProps {
 export function NavBar({ workflowState = "idle" }: NavBarProps) {
   const pathname = usePathname();
   const { robotHost, setRobotHost, isConnected, connectionError, handleConnect, disconnect } = useRobotConnection();
-  const { pose, task } = useNavStatus()
+  const { pose, task, localization } = useNavStatus()
   const navState = task?.state ?? "idle"
   const navLabel =
     navState === "done" ? (task?.status ?? "?") : navState
@@ -95,6 +114,10 @@ export function NavBar({ workflowState = "idle" }: NavBarProps) {
         <div className="hidden items-center gap-2 font-mono text-xs sm:flex">
           <span className="text-muted-foreground">nav:</span>
           <span className={navColor}>{navLabel}</span>
+          <span
+            className={`inline-block h-2 w-2 rounded-full ${localizationDotClass(localization)}`}
+            title={localizationTooltip(localization)}
+          />
           {pose ? (
             <span className="text-foreground">
               ({pose.x.toFixed(2)}, {pose.y.toFixed(2)})

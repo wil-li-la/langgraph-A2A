@@ -87,6 +87,23 @@ def generate_launch_description() -> LaunchDescription:
         ),
     ]
 
+    # D435if depth → /scan (sensor_msgs/LaserScan). AMCL needs a 2D scan;
+    # the Stretch3 has no separate LiDAR, so we flatten a slice of the
+    # head camera's depth image at robot-height.
+    depth_to_scan = Node(
+        package="depthimage_to_laserscan",
+        executable="depthimage_to_laserscan_node",
+        name="depthimage_to_laserscan",
+        output="screen",
+        parameters=[str(config_dir / "nav2_params.yaml")],
+        remappings=[
+            ("depth", "/camera/depth/image_rect"),
+            ("depth_camera_info", "/camera/depth/camera_info"),
+            ("scan", "/scan"),
+        ],
+        condition=UnlessCondition(only_bridges),
+    )
+
     # Map server — load the static room-305 map for Nav2's global costmap.
     map_server = Node(
         package="nav2_map_server",
@@ -240,5 +257,6 @@ def generate_launch_description() -> LaunchDescription:
 
     return LaunchDescription(args + bridges + [
         static_tf_camera, static_tf_color, rosbridge, rosapi, nvblox_node,
+        depth_to_scan,
         map_server, map_server_lifecycle, nav2_bringup,
     ])

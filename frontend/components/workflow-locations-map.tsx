@@ -1,0 +1,230 @@
+"use client"
+
+import { useEffect, useRef, useState } from "react"
+import { useNavStatus } from "@/contexts/nav-status"
+import { fetchNavMap, type NavMapMetadata } from "@/lib/nav-api"
+import { eventToWorld, worldToPx } from "@/lib/map-coords"
+import { colorFor } from "@/lib/location-colors"
+import type { Location } from "@/lib/workflow-locations-api"
+
+interface Props {
+  workflowId: string                       // threaded for future multi-workflow use
+  locations: Record<string, Location>
+  selectedName: string                     // which name a drag will write
+  onAuthored: (
+    name: string,
+    pose: { x: number; y: number; theta: number },
+  ) => Promise<void>
+  disabled?: boolean
+}
+
+interface DragState {
+  startWorld: { x: number; y: number }
+  currentWorld: { x: number; y: number }
+}
+
+// World-frame sizes; converted to SVG pixels at render time via meta.resolution.
+const ROBOT_RADIUS_M = 0.20
+const LOCATION_RADIUS_M = 0.18
+const HEADING_LEN_M = 0.4
+// Drag distance (m) below which the heading is left at 0 instead of computed
+// from atan2(dy, dx). Matches NavMap.
+const DRAG_THETA_THRESHOLD_M = 0.05
+
+/**
+ * Embedded interactive map for the dashboard's Locations panel. Click-
+ * and-drag on the map to author the currently-selected location's pose
+ * (start = (x, y), drag direction = theta). The map also overlays each
+ * saved location with a stable per-name color and shows the robot's
+ * live pose read-only (writes go through the existing dashboard PUT
+ * endpoint, not this component).
+ */
+export function WorkflowLocationsMap({
+  workflowId: _workflowId,
+  locations,
+  selectedName,
+  onAuthored,
+  disabled = false,
+}: Props) {
+  const { pose, teleopActive } = useNavStatus()
+  const [meta, setMeta] = useState<NavMapMetadata | null>(null)
+  const [metaError, setMetaError] = useState<string | null>(null)
+  const [drag, setDrag] = useState<DragState | null>(null)
+  const svgRef = useRef<SVGSVGElement | null>(null)
+
+  useEffect(() => {
+    fetchNavMap().then(setMeta).catch((e) => setMetaError(String(e)))
+  }, [])
+
+  const locked = disabled || teleopActive || !selectedName
+
+  const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!meta || locked) return
+    const w = eventToWorld(svgRef.current, meta, e)
+    if (!w) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    setDrag({ startWorld: w, currentWorld: w })
+  }
+
+  const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!drag || !meta) return
+    const w = eventToWorld(svgRef.current, meta, e)
+    if (!w) return
+    setDrag({ ...drag, currentWorld: w })
+  }
+
+  const onPointerUp = async (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!drag) return
+    e.currentTarget.releasePointerCapture(e.pointerId)
+    const { startWorld, currentWorld } = drag
+    setDrag(null)
+    const dx = currentWorld.x - startWorld.x
+    const dy = currentWorld.y - startWorld.y
+    const dragLen = Math.hypot(dx, dy)
+    const theta = dragLen > DRAG_THETA_THRESHOLD_M ? Math.atan2(dy, dx) : 0
+    try {
+      await onAuthored(selectedName, { x: startWorld.x, y: startWorld.y, theta })
+    } catch (err) {
+      console.error("author location failed", err)
+    }
+  }
+
+  if (metaError) {
+    return (
+      <div className="rounded-md border border-border bg-card p-2 font-mono text-xs text-red-500">
+        Map metadata error: {metaError}
+      </div>
+    )
+  }
+  if (!meta) {
+    return (
+      <div className="rounded-md border border-border bg-card p-2 font-mono text-xs text-muted-foreground">
+        Loading map…
+      </div>
+    )
+  }
+
+  const robotPx = pose ? worldToPx(meta, pose.x, pose.y) : null
+  const robotRadiusPx = ROBOT_RADIUS_M / meta.resolution
+  const locationRadiusPx = LOCATION_RADIUS_M / meta.resolution
+  const headingLenPx = HEADING_LEN_M / meta.resolution
+
+  const dragPreview = drag ? {
+    start: worldToPx(meta, drag.startWorld.x, drag.startWorld.y),
+    current: worldToPx(meta, drag.currentWorld.x, drag.currentWorld.y),
+  } : null
+
+  return (
+    <div
+      className={`overflow-hidden rounded-md border border-border bg-black/5 ${locked ? "opacity-60" : ""}`}
+      title={locked && !disabled && !teleopActive ? "Pick a location name to author" : undefined}
+    >
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${meta.width_px} ${meta.height_px}`}
+        className="block w-full touch-none select-none"
+        style={{ aspectRatio: `${meta.width_px} / ${meta.height_px}` }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
+        <image
+          href={meta.image}
+          x={0}
+          y={0}
+          width={meta.width_px}
+          height={meta.height_px}
+          preserveAspectRatio="none"
+        />
+
+        {/* Saved location markers */}
+        {Object.entries(locations).map(([name, loc]) => {
+          const { px, py } = worldToPx(meta, loc.x, loc.y)
+          const color = colorFor(name)
+          const arrowX = px + Math.cos(loc.theta) * headingLenPx
+          const arrowY = py - Math.sin(loc.theta) * headingLenPx
+          return (
+            <g key={name} pointerEvents="none">
+              <circle
+                cx={px}
+                cy={py}
+                r={locationRadiusPx}
+                fill={color}
+                fillOpacity={0.5}
+                stroke={color}
+                strokeWidth={3}
+              />
+              <line
+                x1={px}
+                y1={py}
+                x2={arrowX}
+                y2={arrowY}
+                stroke={color}
+                strokeWidth={3}
+                strokeLinecap="round"
+              />
+              <text
+                x={px + locationRadiusPx + 4}
+                y={py + 4}
+                fontSize="14"
+                fontFamily="monospace"
+                fill={color}
+              >
+                {name}
+              </text>
+            </g>
+          )
+        })}
+
+        {/* Robot pose (read-only) */}
+        {robotPx && pose && (
+          <g pointerEvents="none">
+            <circle
+              cx={robotPx.px}
+              cy={robotPx.py}
+              r={robotRadiusPx}
+              fill="#ef4444"
+              fillOpacity={0.5}
+              stroke="#7f1d1d"
+              strokeWidth={2}
+            />
+            <line
+              x1={robotPx.px}
+              y1={robotPx.py}
+              x2={robotPx.px + Math.cos(pose.theta) * headingLenPx}
+              y2={robotPx.py - Math.sin(pose.theta) * headingLenPx}
+              stroke="#7f1d1d"
+              strokeWidth={3}
+              strokeLinecap="round"
+            />
+          </g>
+        )}
+
+        {/* Drag preview (in-flight author) */}
+        {dragPreview && !locked && (
+          <g opacity={0.6} pointerEvents="none">
+            <circle
+              cx={dragPreview.start.px}
+              cy={dragPreview.start.py}
+              r={locationRadiusPx}
+              fill={colorFor(selectedName)}
+              fillOpacity={0.3}
+              stroke={colorFor(selectedName)}
+              strokeWidth={3}
+            />
+            <line
+              x1={dragPreview.start.px}
+              y1={dragPreview.start.py}
+              x2={dragPreview.current.px}
+              y2={dragPreview.current.py}
+              stroke={colorFor(selectedName)}
+              strokeWidth={3}
+              strokeLinecap="round"
+            />
+          </g>
+        )}
+      </svg>
+    </div>
+  )
+}

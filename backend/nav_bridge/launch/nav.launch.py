@@ -31,7 +31,6 @@ def generate_launch_description() -> LaunchDescription:
 
     only_bridges = LaunchConfiguration("only_bridges")
     robot_host = LaunchConfiguration("robot_host")
-    use_static_map_to_odom = LaunchConfiguration("use_static_map_to_odom")
     rosbridge_port = LaunchConfiguration("rosbridge_port")
 
     args = [
@@ -39,14 +38,6 @@ def generate_launch_description() -> LaunchDescription:
                               description="Skip nav2 + nvblox; just run bridges + nav_service"),
         DeclareLaunchArgument("robot_host", default_value="192.168.1.38",
                               description="Robot hostname/IP for ZMQ bridges"),
-        DeclareLaunchArgument(
-            "use_static_map_to_odom", default_value="true",
-            description=(
-                "Publish a static map→odom transform at the origin so Nav2 "
-                "has a complete TF chain for testing WITHOUT the room-camera "
-                "localizer. Set false once the real localizer is publishing."
-            ),
-        ),
         DeclareLaunchArgument(
             "rosbridge_port", default_value="9090",
             description=(
@@ -170,12 +161,9 @@ def generate_launch_description() -> LaunchDescription:
         condition=UnlessCondition(only_bridges),
     )
 
-    # nav_service publishes map→odom continuously on /tf at 10 Hz (default
-    # identity, updated by set_initial_pose from the dashboard). Once the
-    # room-camera localizer is up, set use_static_map_to_odom:=false to
-    # disable nav_service's broadcaster (TBD wiring) and let the localizer
-    # own map→base_link directly. For now, it's always-on.
-    static_tf_map_to_odom = None  # placeholder — kept for backward-compat list
+    # AMCL (above) owns map → odom — published continuously based on
+    # /scan + /map + odom. nav_service no longer broadcasts a placeholder
+    # identity transform; set_initial_pose forwards to AMCL's /initialpose.
 
     # Static TF: base_link → camera_depth_optical_frame
     # Approximate D435i mount; refine after a one-time calibration.

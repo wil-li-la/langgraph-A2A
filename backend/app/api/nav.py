@@ -412,7 +412,7 @@ async def _poll_localization_forever() -> None:
             if _localization is not None:
                 logger.warning("localization poll failed: %s", e)
             _localization = None
-            pose_xyt = None
+            pose_xyt = None  # required: unbound if try raised before reply.get("pose")
 
         if pose_xyt is not None:
             try:

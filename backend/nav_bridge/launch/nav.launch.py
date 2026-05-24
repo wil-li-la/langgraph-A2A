@@ -126,6 +126,30 @@ def generate_launch_description() -> LaunchDescription:
         condition=UnlessCondition(only_bridges),
     )
 
+    # AMCL — particle-filter localization against map.pgm, fed /scan from
+    # depth_to_scan. Publishes map → odom. Owns that transform exclusively;
+    # nav_service no longer publishes a placeholder.
+    amcl = Node(
+        package="nav2_amcl",
+        executable="amcl",
+        name="amcl",
+        output="screen",
+        parameters=[str(config_dir / "nav2_params.yaml")],
+        condition=UnlessCondition(only_bridges),
+    )
+    amcl_lifecycle = Node(
+        package="nav2_lifecycle_manager",
+        executable="lifecycle_manager",
+        name="lifecycle_manager_amcl",
+        output="screen",
+        parameters=[{
+            "use_sim_time": False,
+            "autostart": True,
+            "node_names": ["amcl"],
+        }],
+        condition=UnlessCondition(only_bridges),
+    )
+
     # Nav2 bringup — included only when only_bridges:=false. Requires
     # ros-humble-nav2-bringup. Tuned via config/nav2_params.yaml.
     nav2_bringup = GroupAction(
@@ -258,5 +282,7 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription(args + bridges + [
         static_tf_camera, static_tf_color, rosbridge, rosapi, nvblox_node,
         depth_to_scan,
-        map_server, map_server_lifecycle, nav2_bringup,
+        map_server, map_server_lifecycle,
+        amcl, amcl_lifecycle,
+        nav2_bringup,
     ])

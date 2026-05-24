@@ -28,9 +28,8 @@ import msgpack
 import numpy as np
 import rclpy
 import zmq
-from geometry_msgs.msg import PoseStamped, TransformStamped
+from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
-from tf2_ros import TransformBroadcaster
 
 DEFAULT_BIND_PORT = 5560
 DEFAULT_INITIAL_POSE_PORT = 5561
@@ -38,11 +37,11 @@ DEFAULT_TIMEOUT_S = 60.0
 DEFAULT_ROBOT_HOST = "192.168.1.38"
 DEFAULT_ROBOT_ODOM_PORT = 6013
 
-# Lifecycle nodes whose ACTIVE state means "Nav2 ready". We do NOT use AMCL —
-# external (room-camera) localization publishes map→base_link directly. So we
-# wait on the navigator + the map_server only.
+# Lifecycle nodes whose ACTIVE state means "Nav2 ready". AMCL owns map → odom;
+# wait on the navigator + amcl together so we don't accept goals before the
+# transform chain is complete.
 NAV2_NAVIGATOR_NODE = "bt_navigator"
-NAV2_LOCALIZER_NODE = "map_server"
+NAV2_LOCALIZER_NODE = "amcl"
 
 
 def _yaw_to_pose(x: float, y: float, theta: float, frame_id: str, stamp) -> PoseStamped:
@@ -113,27 +112,19 @@ class NavServiceNode(Node):
                 "Install with: sudo apt install ros-humble-nav2-simple-commander"
             )
 
-        # Track latest odom→base_link from robot's ZMQ. set_initial_pose
-        # uses this to compute map→odom = map→base * inv(odom→base).
-        self._latest_odom: tuple[float, float, float] = (0.0, 0.0, 0.0)
+        # Track latest odom→base_link from robot's ZMQ. Read by the
+        # home-pose auto-seed (to confirm odom ≈ origin at startup) and
+        # available for future watchdogs.
+        self._latest_odom: tuple[float, float, float] | None = None
         self._odom_lock = threading.Lock()
         self._odom_addr = f"tcp://{robot_host}:{robot_odom_port}"
         threading.Thread(
             target=self._odom_drain_loop, name="zmq-odom-sub", daemon=True
         ).start()
 
-        # Continuously publish map→odom on /tf at 10 Hz. Default to identity
-        # until set_initial_pose updates _map_to_odom. Using a dynamic /tf
-        # broadcaster (not /tf_static) means "latest wins" trivially — no
-        # latched-message race with another publisher. Runs in a thread
-        # rather than an rclpy Timer because we never spin this Node
-        # (BasicNavigator spins its own internal node — see main()).
-        self._tf_bcast = TransformBroadcaster(self)
-        self._map_to_odom: tuple[float, float, float] = (0.0, 0.0, 0.0)
-        self._map_to_odom_lock = threading.Lock()
-        threading.Thread(
-            target=self._broadcast_loop, name="map-to-odom-bcast", daemon=True
-        ).start()
+        # map → odom is now published by AMCL. nav_service no longer
+        # broadcasts a placeholder identity transform; set_initial_pose
+        # forwards to AMCL's /initialpose (see _handle_set_initial_pose).
 
         ctx = zmq.Context.instance()
         self.rep = ctx.socket(zmq.REP)
@@ -250,29 +241,6 @@ class NavServiceNode(Node):
                 self.get_logger().warning(f"costmap clear failed: {e}")
 
         return {"ok": True, "map_to_odom": [mx, my, mt]}
-
-    def _broadcast_loop(self) -> None:
-        """Thread loop — broadcast map→odom every 100ms from cached state."""
-        while True:
-            with self._map_to_odom_lock:
-                mx, my, mt = self._map_to_odom
-            ts = TransformStamped()
-            ts.header.stamp = self.get_clock().now().to_msg()
-            ts.header.frame_id = "map"
-            ts.child_frame_id = "odom"
-            ts.transform.translation.x = mx
-            ts.transform.translation.y = my
-            ts.transform.translation.z = 0.0
-            half = mt / 2.0
-            ts.transform.rotation.x = 0.0
-            ts.transform.rotation.y = 0.0
-            ts.transform.rotation.z = math.sin(half)
-            ts.transform.rotation.w = math.cos(half)
-            try:
-                self._tf_bcast.sendTransform(ts)
-            except Exception as e:
-                self.get_logger().warning(f"map→odom send failed: {e}")
-            time.sleep(0.1)
 
     @staticmethod
     def _safe_unpack(payload: bytes) -> dict:

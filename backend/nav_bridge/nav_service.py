@@ -30,7 +30,9 @@ import rclpy
 import yaml
 import zmq
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
+from sensor_msgs.msg import LaserScan
 
 DEFAULT_BIND_PORT = 5560
 DEFAULT_INITIAL_POSE_PORT = 5561
@@ -141,6 +143,20 @@ class NavServiceNode(Node):
             PoseWithCovarianceStamped, "/initialpose", 1
         )
 
+        # Localization watchdogs. AMCL publishes /amcl_pose with covariance;
+        # /scan staleness reveals D435 / depthimage_to_laserscan dropouts.
+        # _safety_tick cancels active nav goals if /scan stays stale > 5 s.
+        self._amcl_cov_xy: float = float("inf")
+        self._amcl_cov_yaw: float = float("inf")
+        self._latest_amcl_stamp_ns: int = 0
+        self._latest_scan_stamp_ns: int = 0
+        self.create_subscription(
+            PoseWithCovarianceStamped, "/amcl_pose", self._on_amcl_pose, 10,
+        )
+        self.create_subscription(LaserScan, "/scan", self._on_scan, 10)
+        self._dead_reckon_since: float | None = None
+        self._safety_timer = self.create_timer(1.0, self._safety_tick)
+
         ctx = zmq.Context.instance()
         self.rep = ctx.socket(zmq.REP)
         self.rep.setsockopt(zmq.LINGER, 0)
@@ -239,6 +255,69 @@ class NavServiceNode(Node):
             f"{hp['theta']:.3f}) [map frame]"
         )
         return True
+
+    def _on_amcl_pose(self, msg: PoseWithCovarianceStamped) -> None:
+        # 6x6 covariance row-major: xx=[0], yy=[7], yaw=[35]. cov_xy is the
+        # trace of the position block; cov_yaw is the angular variance.
+        self._amcl_cov_xy = float(msg.pose.covariance[0] + msg.pose.covariance[7])
+        self._amcl_cov_yaw = float(msg.pose.covariance[35])
+        s = msg.header.stamp
+        self._latest_amcl_stamp_ns = s.sec * 1_000_000_000 + s.nanosec
+
+    def _on_scan(self, msg: LaserScan) -> None:
+        s = msg.header.stamp
+        self._latest_scan_stamp_ns = s.sec * 1_000_000_000 + s.nanosec
+
+    def _localization_state(self) -> dict:
+        """Pose health classification for status replies. States:
+          unseeded    — no AMCL pose received yet (just-booted, pre-seed)
+          dead-reckon — /scan stale > 1 s; AMCL is open-loop on odom
+          uncertain   — covariance over loose thresholds; cloud not converged
+          ok          — AMCL has fresh scan + tight covariance
+        """
+        now_ns = time.time_ns()
+        scan_age_s = ((now_ns - self._latest_scan_stamp_ns) / 1e9
+                      if self._latest_scan_stamp_ns else float("inf"))
+
+        if self._latest_amcl_stamp_ns == 0:
+            state = "unseeded"
+        elif scan_age_s > 1.0:
+            state = "dead-reckon"
+        elif self._amcl_cov_xy > 1.0 or self._amcl_cov_yaw > 0.25:
+            state = "uncertain"
+        else:
+            state = "ok"
+
+        def _finite(v: float) -> float | None:
+            return v if v != float("inf") else None
+
+        return {
+            "state": state,
+            "cov_xy_m": _finite(self._amcl_cov_xy),
+            "cov_yaw_rad": _finite(self._amcl_cov_yaw),
+            "scan_age_s": _finite(scan_age_s),
+        }
+
+    def _safety_tick(self) -> None:
+        """1 Hz: if /scan stays stale > 5 s, cancel any active nav goal.
+        AMCL keeps integrating odom under dead-reckon, but the planner has
+        no obstacle truth, so continuing to drive is unsafe."""
+        state = self._localization_state()
+        if state["state"] == "dead-reckon":
+            if self._dead_reckon_since is None:
+                self._dead_reckon_since = time.monotonic()
+            elif time.monotonic() - self._dead_reckon_since > 5.0:
+                if self._navigator is not None and self._nav_ready:
+                    try:
+                        self._navigator.cancelTask()
+                        self.get_logger().warn(
+                            "safety: /scan stale > 5 s — cancelled active nav goal"
+                        )
+                    except Exception as e:
+                        self.get_logger().warn(f"safety: cancelTask failed: {e}")
+                self._dead_reckon_since = None  # one-shot
+        else:
+            self._dead_reckon_since = None
 
     def _wait_for_nav2(self) -> None:
         # Block until bt_navigator + amcl are both ACTIVE. Once AMCL is up
@@ -410,17 +489,27 @@ def main() -> None:
     rclpy.init(args=ros_args)
     node = NavServiceNode(args.port, args.initial_pose_port,
                           args.robot, args.robot_odom_port)
-    # Don't rclpy.spin(node) — BasicNavigator spins its own internal node
-    # on the same context and a second parallel spin races the executor
-    # ("generator already executing"). The Node we created here is just a
-    # logger holder + ZMQ REP container; the REP loop runs in its own
-    # thread (see _serve_loop), so we just block until SIGINT.
+
+    # Give THIS node its own SingleThreadedExecutor on a dedicated thread.
+    # We can't rclpy.spin(node) on the main thread because BasicNavigator
+    # spins its own internal node on the default context and a second spin
+    # of the same node races the executor ("generator already executing").
+    # Spinning a *different* node on a *different* executor is safe and
+    # also necessary — without it, our /amcl_pose + /scan subscriptions
+    # and the 1 Hz safety timer would never deliver callbacks.
+    executor = SingleThreadedExecutor()
+    executor.add_node(node)
+    threading.Thread(
+        target=executor.spin, name="nav-service-spin", daemon=True
+    ).start()
+
     stop = threading.Event()
     try:
         stop.wait()
     except KeyboardInterrupt:
         pass
     finally:
+        executor.shutdown()
         node.destroy_node()
         try:
             rclpy.shutdown()

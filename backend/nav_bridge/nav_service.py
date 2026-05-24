@@ -48,6 +48,15 @@ NAV2_NAVIGATOR_NODE = "bt_navigator"
 NAV2_LOCALIZER_NODE = "amcl"
 
 
+def _quat_to_yaw(q) -> float:
+    """Extract yaw (rotation about z) from a geometry_msgs/Quaternion.
+    Assumes roll/pitch are zero, which holds for a differential-drive
+    base in the map frame."""
+    siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
+    cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+    return math.atan2(siny_cosp, cosy_cosp)
+
+
 def _yaw_to_pose(x: float, y: float, theta: float, frame_id: str, stamp) -> PoseStamped:
     p = PoseStamped()
     p.header.stamp = stamp
@@ -152,6 +161,7 @@ class NavServiceNode(Node):
         self._amcl_cov_yaw: float = float("inf")
         self._latest_amcl_stamp_ns: int = 0
         self._latest_scan_stamp_ns: int = 0
+        self._latest_amcl_pose: tuple[float, float, float] | None = None
         self.create_subscription(
             PoseWithCovarianceStamped, "/amcl_pose", self._on_amcl_pose, 10,
         )
@@ -276,6 +286,12 @@ class NavServiceNode(Node):
         self._amcl_cov_yaw = float(msg.pose.covariance[35])
         s = msg.header.stamp
         self._latest_amcl_stamp_ns = s.sec * 1_000_000_000 + s.nanosec
+        p = msg.pose.pose
+        self._latest_amcl_pose = (
+            float(p.position.x),
+            float(p.position.y),
+            _quat_to_yaw(p.orientation),
+        )
 
     def _on_scan(self, msg: LaserScan) -> None:
         s = msg.header.stamp
@@ -384,6 +400,11 @@ class NavServiceNode(Node):
             reply = {
                 "nav_ready": self._nav_ready,
                 "localization": self._localization_state(),
+                "pose": (
+                    list(self._latest_amcl_pose)
+                    if self._latest_amcl_pose is not None
+                    else None
+                ),
             }
             self.rep_status.send(msgpack.packb(reply, use_bin_type=True))
 

@@ -39,7 +39,9 @@ logger = logging.getLogger(__name__)
 NAV_HOST = os.getenv("NVBLOX_NAV_HOST", "localhost")
 NAV_PORT = int(os.getenv("NVBLOX_NAV_PORT", "5560"))
 NAV_INITIAL_POSE_PORT = int(os.getenv("NVBLOX_NAV_INITIAL_POSE_PORT", "5561"))
+NAV_STATUS_PORT = int(os.getenv("NVBLOX_NAV_STATUS_PORT", "5562"))
 DEFAULT_TIMEOUT_S = float(os.getenv("NVBLOX_NAV_TIMEOUT_S", "60"))
+LOCALIZATION_POLL_INTERVAL_S = 1.0
 
 # Persist the manually-set pose across backend restarts so the user
 # doesn't have to re-drag every session. When the room-camera localizer
@@ -156,6 +158,10 @@ _task: NavTask = NavTask(
 # stream surfaces this so the dashboard's /viz / /nav / /teleop pages can
 # arbitrate UI state. See backend/app/api/teleop.py for the setter calls.
 _teleop_active: bool = False
+# Latest localization snapshot from nav_service status REP. Shape:
+# {state: "ok|uncertain|dead-reckon|unseeded", cov_xy_m, cov_yaw_rad,
+#  scan_age_s}. None until the first successful poll (or nav_service down).
+_localization: dict | None = None
 _state_event = asyncio.Event()
 
 
@@ -324,6 +330,7 @@ async def post_goto(request: Request):
 
 
 async def get_status(_request: Request):
+    _ensure_localization_poller()
     return JSONResponse(asdict(_task))
 
 
@@ -332,12 +339,14 @@ def _snapshot() -> dict[str, Any]:
         "pose": asdict(_pose) if _pose else None,
         "task": asdict(_task),
         "teleop_active": _teleop_active,
+        "localization": _localization,
     }
 
 
 async def status_stream(request: Request):
-    """SSE stream of (pose, task, teleop_active) snapshots, one per change."""
+    """SSE stream of (pose, task, teleop_active, localization) snapshots, one per change."""
     await _maybe_restore_cached_pose()
+    _ensure_localization_poller()
     async def gen():
         yield _sse_event(_snapshot())
         while True:
@@ -374,6 +383,37 @@ nav_routes = [
 
 
 _restore_done = False
+_localization_poller_task: asyncio.Task | None = None
+
+
+async def _poll_localization_forever() -> None:
+    """Background loop: poll nav_service status REP at 1 Hz, push diffs
+    onto the SSE stream. A single failure (nav_service down, network)
+    sets _localization to None and keeps trying — operator sees the
+    indicator go grey, not stuck on the last good value."""
+    global _localization
+    while True:
+        prev = _localization
+        try:
+            reply = await asyncio.to_thread(
+                _zmq_request_blocking, {}, 1.0, NAV_STATUS_PORT
+            )
+            _localization = reply.get("localization")
+        except Exception as e:
+            if _localization is not None:
+                logger.warning("localization poll failed: %s", e)
+            _localization = None
+        if _localization != prev:
+            _bump()
+        await asyncio.sleep(LOCALIZATION_POLL_INTERVAL_S)
+
+
+def _ensure_localization_poller() -> None:
+    """Start the poller on the first SSE/get_status call. asyncio.create_task
+    needs a running event loop, so we defer it instead of starting at import."""
+    global _localization_poller_task
+    if _localization_poller_task is None or _localization_poller_task.done():
+        _localization_poller_task = asyncio.create_task(_poll_localization_forever())
 
 
 async def _maybe_restore_cached_pose() -> None:

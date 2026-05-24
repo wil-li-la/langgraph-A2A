@@ -12,10 +12,48 @@
 
 amcl:
   ros__parameters:
-    # We use room-camera external localization, not AMCL. Keep AMCL stub
-    # disabled — Nav2 BasicNavigator wants *something* publishing
-    # map → odom, and that comes from the room_camera_localizer.
     use_sim_time: false
+
+    # frames — match the existing TF tree from sensors_bridge.py + nav.launch.py
+    base_frame_id: "base_link"
+    odom_frame_id: "odom"
+    global_frame_id: "map"
+    scan_topic: "/scan"
+
+    # particle filter
+    min_particles: 500
+    max_particles: 2000
+    pf_err: 0.05
+    pf_z: 0.99
+
+    # differential-drive motion model (Stretch's base has two driven wheels + caster)
+    robot_model_type: "nav2_amcl::DifferentialMotionModel"
+    alpha1: 0.2
+    alpha2: 0.2
+    alpha3: 0.2
+    alpha4: 0.2
+    alpha5: 0.2
+
+    # likelihood-field sensor model (faster than the beam model)
+    laser_model_type: "likelihood_field"
+    laser_min_range: 0.30
+    laser_max_range: 8.00
+    laser_likelihood_max_dist: 2.0
+    sigma_hit: 0.20
+    z_hit: 0.5
+    z_short: 0.05
+    z_max: 0.05
+    z_rand: 0.5
+
+    # auto-seed covariance: ~0.5 m + ~15° std-dev — absorbs dock slop
+    initial_cov_xx: 0.25
+    initial_cov_yy: 0.25
+    initial_cov_aa: 0.07
+
+    # update rates
+    update_min_d: 0.20
+    update_min_a: 0.20
+    transform_tolerance: 0.5
 
 bt_navigator:
   ros__parameters:

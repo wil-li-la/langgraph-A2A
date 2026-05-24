@@ -167,7 +167,7 @@ export function WorkflowLocationsMap({
               <text
                 x={px + locationRadiusPx + 4}
                 y={py + 4}
-                fontSize="14"
+                fontSize={locationRadiusPx * 1.5}
                 fontFamily="monospace"
                 fill={color}
               >

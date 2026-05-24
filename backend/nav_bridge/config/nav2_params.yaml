@@ -197,3 +197,14 @@ map_server:
   ros__parameters:
     use_sim_time: false
     yaml_filename: ""   # set via launch
+
+depthimage_to_laserscan:
+  ros__parameters:
+    # 10 rows of depth pixels around the depth image's centerline get
+    # collapsed (min over rows) into a single laser line. With the D435if
+    # rotated to the standard optical convention this is a horizontal
+    # slice at the camera's optical-axis height (~1.4 m on the Stretch).
+    scan_height: 10
+    range_min: 0.30
+    range_max: 8.0
+    output_frame: "camera_depth_optical_frame"

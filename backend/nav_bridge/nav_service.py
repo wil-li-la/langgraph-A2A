@@ -36,6 +36,7 @@ from sensor_msgs.msg import LaserScan
 
 DEFAULT_BIND_PORT = 5560
 DEFAULT_INITIAL_POSE_PORT = 5561
+DEFAULT_STATUS_PORT = 5562
 DEFAULT_TIMEOUT_S = 60.0
 DEFAULT_ROBOT_HOST = "192.168.1.38"
 DEFAULT_ROBOT_ODOM_PORT = 6013
@@ -107,7 +108,8 @@ def _bind_or_die(sock, addr: str, label: str, logger) -> None:
 
 class NavServiceNode(Node):
     def __init__(self, bind_port: int, initial_pose_port: int,
-                 robot_host: str, robot_odom_port: int) -> None:
+                 status_port: int, robot_host: str,
+                 robot_odom_port: int) -> None:
         super().__init__("nvblox_nav_service")
 
         self._navigator = None
@@ -172,9 +174,20 @@ class NavServiceNode(Node):
         _bind_or_die(self.rep_pose, pose_bind_addr, "initial_pose", self.get_logger())
         self.get_logger().info(f"nav_service initial_pose bound on {pose_bind_addr}")
 
+        # Status REP socket — backend polls this at ~1 Hz to learn localization
+        # health (AMCL covariance + scan staleness) without depending on the
+        # goto socket, which is often blocked inside a multi-second goToPose().
+        self.rep_status = ctx.socket(zmq.REP)
+        self.rep_status.setsockopt(zmq.LINGER, 0)
+        status_bind_addr = f"tcp://*:{status_port}"
+        _bind_or_die(self.rep_status, status_bind_addr, "status", self.get_logger())
+        self.get_logger().info(f"nav_service status bound on {status_bind_addr}")
+
         threading.Thread(target=self._serve_loop, name="zmq-rep-goto",
                          daemon=True).start()
         threading.Thread(target=self._serve_pose_loop, name="zmq-rep-pose",
+                         daemon=True).start()
+        threading.Thread(target=self._serve_status_loop, name="zmq-rep-status",
                          daemon=True).start()
 
     def _odom_drain_loop(self) -> None:
@@ -359,6 +372,21 @@ class NavServiceNode(Node):
             reply = self._handle_set_initial_pose(req)
             self.rep_pose.send(msgpack.packb(reply, use_bin_type=True))
 
+    def _serve_status_loop(self) -> None:
+        while True:
+            try:
+                # We don't even look at the request body — any message is a
+                # status poll. Keeps the protocol trivial; backend just sends b"".
+                self.rep_status.recv()
+            except zmq.error.ZMQError as e:
+                self.get_logger().error(f"status recv error: {e}")
+                continue
+            reply = {
+                "nav_ready": self._nav_ready,
+                "localization": self._localization_state(),
+            }
+            self.rep_status.send(msgpack.packb(reply, use_bin_type=True))
+
     def _handle_set_initial_pose(self, req: dict) -> dict:
         if "_decode_error" in req:
             return {"ok": False, "reason": f"msgpack decode: {req['_decode_error']}"}
@@ -480,6 +508,8 @@ def main() -> None:
     parser.add_argument("--initial-pose-port", type=int,
                         default=DEFAULT_INITIAL_POSE_PORT,
                         help=f"set_initial_pose REP port (default: {DEFAULT_INITIAL_POSE_PORT})")
+    parser.add_argument("--status-port", type=int, default=DEFAULT_STATUS_PORT,
+                        help=f"status REP port (default: {DEFAULT_STATUS_PORT})")
     parser.add_argument("--robot", default=DEFAULT_ROBOT_HOST,
                         help="robot hostname/IP for odom_tf SUB")
     parser.add_argument("--robot-odom-port", type=int,
@@ -487,7 +517,7 @@ def main() -> None:
     args, ros_args = parser.parse_known_args()
 
     rclpy.init(args=ros_args)
-    node = NavServiceNode(args.port, args.initial_pose_port,
+    node = NavServiceNode(args.port, args.initial_pose_port, args.status_port,
                           args.robot, args.robot_odom_port)
 
     # Give THIS node its own SingleThreadedExecutor on a dedicated thread.

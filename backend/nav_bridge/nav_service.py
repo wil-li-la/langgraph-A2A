@@ -23,12 +23,13 @@ import argparse
 import math
 import threading
 import time
+from pathlib import Path
 
 import msgpack
-import numpy as np
 import rclpy
+import yaml
 import zmq
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from rclpy.node import Node
 
 DEFAULT_BIND_PORT = 5560
@@ -57,13 +58,24 @@ def _yaw_to_pose(x: float, y: float, theta: float, frame_id: str, stamp) -> Pose
     return p
 
 
-def _se2_matrix(x: float, y: float, theta: float) -> np.ndarray:
-    c, s = math.cos(theta), math.sin(theta)
-    return np.array([[c, -s, x], [s, c, y], [0.0, 0.0, 1.0]])
-
-
-def _se2_unpack(M: np.ndarray) -> tuple[float, float, float]:
-    return float(M[0, 2]), float(M[1, 2]), float(math.atan2(M[1, 0], M[0, 0]))
+def _load_home_pose(config_dir: Path) -> dict | None:
+    """Read backend/nav_bridge/config/home_pose.yaml. Returns the inner
+    home_pose dict (with x, y, theta, odom_epsilon_xy, odom_epsilon_theta,
+    frame_id) or None if the file is missing or malformed."""
+    p = config_dir / "home_pose.yaml"
+    if not p.exists():
+        return None
+    try:
+        data = yaml.safe_load(p.read_text())
+    except yaml.YAMLError:
+        return None
+    hp = (data or {}).get("home_pose")
+    if not isinstance(hp, dict):
+        return None
+    required = ("x", "y", "theta", "odom_epsilon_xy", "odom_epsilon_theta")
+    if not all(k in hp for k in required):
+        return None
+    return hp
 
 
 def _bind_or_die(sock, addr: str, label: str, logger) -> None:
@@ -125,6 +137,9 @@ class NavServiceNode(Node):
         # map → odom is now published by AMCL. nav_service no longer
         # broadcasts a placeholder identity transform; set_initial_pose
         # forwards to AMCL's /initialpose (see _handle_set_initial_pose).
+        self._initialpose_pub = self.create_publisher(
+            PoseWithCovarianceStamped, "/initialpose", 1
+        )
 
         ctx = zmq.Context.instance()
         self.rep = ctx.socket(zmq.REP)
@@ -165,10 +180,70 @@ class NavServiceNode(Node):
                 self.get_logger().warning(f"odom sub error: {e}")
                 time.sleep(0.5)
 
+    def _auto_seed_from_home_pose(self) -> bool:
+        """At launch, if the wheel odometry is at (0, 0, 0) ± epsilon
+        (i.e. stretch3-zmq just booted), publish home_pose.yaml to
+        AMCL's /initialpose so the operator doesn't have to drag-set.
+        Returns True if seeded; False otherwise."""
+        hp = _load_home_pose(Path(__file__).resolve().parent / "config")
+        if hp is None:
+            self.get_logger().warn(
+                "auto-seed: home_pose.yaml missing or malformed; "
+                "operator must drag-set pose"
+            )
+            return False
+
+        # Wait up to 5 s for first odom message from sensors_bridge.
+        deadline = time.monotonic() + 5.0
+        ox = oy = ot = None
+        while time.monotonic() < deadline:
+            with self._odom_lock:
+                if self._latest_odom is not None:
+                    ox, oy, ot = self._latest_odom
+                    break
+            time.sleep(0.1)
+        if ox is None:
+            self.get_logger().warn(
+                "auto-seed: no odom received within 5 s; "
+                "operator must drag-set pose"
+            )
+            return False
+
+        xy_dist = math.hypot(ox, oy)
+        theta_wrapped = math.atan2(math.sin(ot), math.cos(ot))
+        if (xy_dist > hp["odom_epsilon_xy"]
+                or abs(theta_wrapped) > hp["odom_epsilon_theta"]):
+            self.get_logger().warn(
+                f"auto-seed: odom not at origin (x={ox:.3f}, y={oy:.3f}, "
+                f"theta={ot:.3f}); operator must drag-set"
+            )
+            return False
+
+        msg = PoseWithCovarianceStamped()
+        msg.header.frame_id = hp.get("frame_id", "map")
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.pose.pose.position.x = float(hp["x"])
+        msg.pose.pose.position.y = float(hp["y"])
+        msg.pose.pose.position.z = 0.0
+        half = float(hp["theta"]) / 2.0
+        msg.pose.pose.orientation.z = math.sin(half)
+        msg.pose.pose.orientation.w = math.cos(half)
+        cov = [0.0] * 36
+        cov[0]  = 0.25   # xx ≈ (0.5 m)²
+        cov[7]  = 0.25   # yy
+        cov[35] = 0.07   # yaw ≈ (15°)²
+        msg.pose.covariance = cov
+        self._initialpose_pub.publish(msg)
+        self.get_logger().info(
+            f"auto-seeded from home_pose: ({hp['x']:.3f}, {hp['y']:.3f}, "
+            f"{hp['theta']:.3f}) [map frame]"
+        )
+        return True
+
     def _wait_for_nav2(self) -> None:
-        # Default waitUntilNav2Active() polls amcl/get_state — but we use
-        # external (room-camera) localization, no AMCL. Wait on map_server
-        # instead, which IS a lifecycle node in our nav.launch.py stack.
+        # Block until bt_navigator + amcl are both ACTIVE. Once AMCL is up
+        # it'll accept /initialpose, so this is the right point to auto-seed
+        # from home_pose.yaml.
         try:
             self._navigator.waitUntilNav2Active(
                 navigator=NAV2_NAVIGATOR_NODE,
@@ -179,6 +254,7 @@ class NavServiceNode(Node):
                 f"Nav2 stack active (navigator={NAV2_NAVIGATOR_NODE}, "
                 f"localizer={NAV2_LOCALIZER_NODE})"
             )
+            self._auto_seed_from_home_pose()
         except Exception as e:
             self.get_logger().error(f"waitUntilNav2Active failed: {e}")
 
@@ -212,24 +288,30 @@ class NavServiceNode(Node):
             return {"ok": False, "reason": "target must be [x, y, theta]"}
 
         target_x, target_y, target_theta = (float(v) for v in target)
-        with self._odom_lock:
-            ox, oy, ot = self._latest_odom
 
-        # map→odom = (map→base_link) * inv(odom→base_link).
-        # When robot is at odom-origin (just-started driver), this reduces
-        # to map→odom = (target_x, target_y, target_theta).
-        m_t_b = _se2_matrix(target_x, target_y, target_theta)
-        o_t_b = _se2_matrix(ox, oy, ot)
-        m_t_o = m_t_b @ np.linalg.inv(o_t_b)
-        mx, my, mt = _se2_unpack(m_t_o)
-
-        with self._map_to_odom_lock:
-            self._map_to_odom = (mx, my, mt)
+        msg = PoseWithCovarianceStamped()
+        msg.header.frame_id = "map"
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.pose.pose.position.x = target_x
+        msg.pose.pose.position.y = target_y
+        msg.pose.pose.position.z = 0.0
+        half = target_theta / 2.0
+        msg.pose.pose.orientation.z = math.sin(half)
+        msg.pose.pose.orientation.w = math.cos(half)
+        # Same covariance shape as auto-seed: ~0.5 m / ~15° std-dev so AMCL
+        # spreads its particle cloud wide enough to converge after a manual
+        # drag-set. Tighter values trap AMCL near a bad guess; looser values
+        # waste cycles. AMCL re-computes map→odom internally.
+        cov = [0.0] * 36
+        cov[0]  = 0.25
+        cov[7]  = 0.25
+        cov[35] = 0.07
+        msg.pose.covariance = cov
+        self._initialpose_pub.publish(msg)
 
         self.get_logger().info(
-            f"set_initial_pose: target=({target_x:.3f}, {target_y:.3f}, "
-            f"{target_theta:.3f}) odom→base=({ox:.3f}, {oy:.3f}, {ot:.3f}) "
-            f"→ map→odom=({mx:.3f}, {my:.3f}, {mt:.3f})"
+            f"set_initial_pose → AMCL /initialpose: "
+            f"({target_x:.3f}, {target_y:.3f}, {target_theta:.3f}) [map]"
         )
 
         # Trigger a global costmap clear so old footprint inflations from
@@ -240,7 +322,7 @@ class NavServiceNode(Node):
             except Exception as e:
                 self.get_logger().warning(f"costmap clear failed: {e}")
 
-        return {"ok": True, "map_to_odom": [mx, my, mt]}
+        return {"ok": True}
 
     @staticmethod
     def _safe_unpack(payload: bytes) -> dict:

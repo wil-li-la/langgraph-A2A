@@ -514,10 +514,19 @@ class NavServiceNode(Node):
             TaskResult.FAILED: "OBSTRUCTED",
         }
         status = status_map.get(result, "ROBOT_ERROR")
+        # Prefer the actual AMCL pose at task completion over the commanded
+        # goal — the robot may have stopped short on FAILED/CANCELED, and even
+        # on SUCCEEDED it lands within tolerance, not exactly on the goal.
+        # Fall back to the goal only if AMCL has never published.
+        final_pose = (
+            list(self._latest_amcl_pose)
+            if self._latest_amcl_pose is not None
+            else [x, y, theta]
+        )
         return {
             "status": status,
             "reason": f"Nav2 result: {result}",
-            "final_pose": [x, y, theta],   # TODO: query from /tf in a follow-up
+            "final_pose": final_pose,
             "elapsed_s": time.monotonic() - t0,
         }
 

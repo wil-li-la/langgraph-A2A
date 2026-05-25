@@ -85,9 +85,12 @@ odom ≈ origin). If it's been running and the robot has moved, restart it.
 
 EOF
 
-# T1 — backend A2A + dashboard REST/SSE
+# T1 — backend A2A + dashboard REST/SSE.
+# DETECT_ZMQ_* spins up the detection consumer thread (consumes the YOLO
+# bridge in the yolo_detect window). Container runs --pid=host so the
+# ZMQ socket is reachable on localhost.
 tmux new-session -d -s "$SESSION" -n backend -c "$REPO_ROOT/backend" \
-  'source .venv/bin/activate && exec python -m app'
+  'source .venv/bin/activate && DETECT_ZMQ_HOST=localhost DETECT_ZMQ_PORT=5563 exec python -m app'
 
 # Keep dead panes visible so crashes don't vanish silently. -g sets it for
 # the whole session including windows we create below.
@@ -112,13 +115,27 @@ tmux new-window -t "$SESSION" -n cam_bridge -c "$REPO_ROOT/backend/cam_bridge" \
 tmux new-window -t "$SESSION" -n room_cams -c "$REPO_ROOT/backend/room_cameras" \
   'exec ./run_bridge.sh'
 
-# T6 — frontend dev server (Turbo, http://localhost:3000)
+# T6 — YOLO-World detector (ROS2, inside container). Open-vocab
+# detection on /camera/color/image_raw → /detections (Detection2DArray).
+# Vocabulary can be changed at runtime via `ros2 param set /yolo_world
+# classes [...]`. See backend/nav_bridge/YOLO_WORLD.md.
+tmux new-window -t "$SESSION" -n yolo_detect -c "$REPO_ROOT" \
+  "exec docker exec -it $CONTAINER bash -lc 'source /opt/ros/humble/setup.bash && source /workspaces/isaac_ros-dev/install/setup.bash && exec python3 /workspaces/langgraph-A2A/backend/nav_bridge/yolo_world_node.py --image-topic /camera/color/image_raw --classes \"medicine bottle,patient,human,chair,door,table\"'"
+
+# T7 — detections → ZMQ bridge (ROS2 /detections → ZMQ PUB :5563).
+# Backend's DETECT_ZMQ_* env (T1) consumes this and fans out via SSE.
+# NOT 5562 — that port is nav_service status PUB. Don't change without
+# also updating DETECT_ZMQ_PORT above.
+tmux new-window -t "$SESSION" -n detect_bridge -c "$REPO_ROOT" \
+  "exec docker exec -it $CONTAINER bash -lc 'source /opt/ros/humble/setup.bash && exec python3 /workspaces/langgraph-A2A/backend/nav_bridge/detection_bridge.py --camera head --zmq-port 5563'"
+
+# T8 — frontend dev server (Turbo, http://localhost:3000)
 tmux new-window -t "$SESSION" -n frontend -c "$REPO_ROOT/frontend" \
   'exec pnpm dev'
 
 tmux select-window -t "$SESSION:backend"
 
-echo "session $SESSION started (windows: backend, nav, mediamtx, cam_bridge, room_cams, frontend)"
+echo "session $SESSION started (windows: backend, nav, mediamtx, cam_bridge, room_cams, yolo_detect, detect_bridge, frontend)"
 echo "attach with:  tmux attach -t $SESSION"
 
 exec tmux attach -t "$SESSION"

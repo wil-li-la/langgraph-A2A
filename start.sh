@@ -90,7 +90,7 @@ EOF
 # bridge in the yolo_detect window). Container runs --pid=host so the
 # ZMQ socket is reachable on localhost.
 tmux new-session -d -s "$SESSION" -n backend -c "$REPO_ROOT/backend" \
-  'source .venv/bin/activate && DETECT_ZMQ_HOST=localhost DETECT_ZMQ_PORT=5563 exec python -m app'
+  'source .venv/bin/activate && DETECT_ZMQ_HOST=localhost DETECT_ZMQ_PORT=5570 exec python -m app'
 
 # Keep dead panes visible so crashes don't vanish silently. -g sets it for
 # the whole session including windows we create below.
@@ -115,19 +115,20 @@ tmux new-window -t "$SESSION" -n cam_bridge -c "$REPO_ROOT/backend/cam_bridge" \
 tmux new-window -t "$SESSION" -n room_cams -c "$REPO_ROOT/backend/room_cameras" \
   'exec ./run_bridge.sh'
 
-# T6 — YOLO-World detector (ROS2, inside container). Open-vocab
-# detection on /camera/color/image_raw → /detections (Detection2DArray).
-# Vocabulary can be changed at runtime via `ros2 param set /yolo_world
-# classes [...]`. See backend/nav_bridge/YOLO_WORLD.md.
+# T6 — YOLO-World detector (ROS2 inside container, ZMQ input). Post-FUNMAP
+# the robot publishes camera frames on ZMQ tcp://192.168.1.38:6000 (arducam)
+# — sensors_bridge ROS hop is gone. Output: /detections (Detection2DArray).
+# Vocabulary hot-reload: `ros2 param set /yolo_world classes [...]`.
 tmux new-window -t "$SESSION" -n yolo_detect -c "$REPO_ROOT" \
-  "exec docker exec -it $CONTAINER bash -lc 'source /opt/ros/humble/setup.bash && source /workspaces/isaac_ros-dev/install/setup.bash && exec python3 /workspaces/langgraph-A2A/backend/nav_bridge/yolo_world_node.py --image-topic /camera/color/image_raw --classes \"medicine bottle,patient,human,chair,door,table\"'"
+  "exec docker exec -it $CONTAINER bash -lc 'source /opt/ros/humble/setup.bash && source /workspaces/isaac_ros-dev/install/setup.bash && exec python3 /workspaces/langgraph-A2A/backend/nav_bridge/yolo_world_node.py --zmq-addr tcp://192.168.1.38:6000 --frame-shape 720,1280,3 --classes \"medicine bottle,patient,human,chair,door,table\"'"
 
-# T7 — detections → ZMQ bridge (ROS2 /detections → ZMQ PUB :5563).
+# T7 — detections → ZMQ bridge (ROS2 /detections → ZMQ PUB :5570).
 # Backend's DETECT_ZMQ_* env (T1) consumes this and fans out via SSE.
-# NOT 5562 — that port is nav_service status PUB. Don't change without
-# also updating DETECT_ZMQ_PORT above.
+# Port 5570: 5557–5563 are FUNMAP-reserved (goto/status/scan/map/amcl_pose
+# on robot + nav_service on lab). Image dims match yolo's --rotate ccw
+# output (720,1280 → 720x1280 portrait after rotation).
 tmux new-window -t "$SESSION" -n detect_bridge -c "$REPO_ROOT" \
-  "exec docker exec -it $CONTAINER bash -lc 'source /opt/ros/humble/setup.bash && exec python3 /workspaces/langgraph-A2A/backend/nav_bridge/detection_bridge.py --camera head --zmq-port 5563'"
+  "exec docker exec -it $CONTAINER bash -lc 'source /opt/ros/humble/setup.bash && exec python3 /workspaces/langgraph-A2A/backend/nav_bridge/detection_bridge.py --camera head --zmq-port 5570 --image-w 720 --image-h 1280'"
 
 # T8 — frontend dev server (Turbo, http://localhost:3000)
 tmux new-window -t "$SESSION" -n frontend -c "$REPO_ROOT/frontend" \

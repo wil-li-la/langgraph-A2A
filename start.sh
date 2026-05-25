@@ -120,7 +120,7 @@ tmux new-window -t "$SESSION" -n room_cams -c "$REPO_ROOT/backend/room_cameras" 
 # — sensors_bridge ROS hop is gone. Output: /detections (Detection2DArray).
 # Vocabulary hot-reload: `ros2 param set /yolo_world classes [...]`.
 tmux new-window -t "$SESSION" -n yolo_detect -c "$REPO_ROOT" \
-  "exec docker exec -it $CONTAINER bash -lc 'source /opt/ros/humble/setup.bash && source /workspaces/isaac_ros-dev/install/setup.bash && exec python3 /workspaces/langgraph-A2A/backend/nav_bridge/yolo_world_node.py --zmq-addr tcp://192.168.1.38:6000 --frame-shape 720,1280,3 --classes \"medicine bottle,patient,human,chair,door,table\"'"
+  "exec docker exec -it $CONTAINER bash -lc 'source /opt/ros/humble/setup.bash && source /workspaces/isaac_ros-dev/install/setup.bash && exec python3 /workspaces/langgraph-A2A/backend/nav_bridge/yolo_world_node.py --zmq-addr tcp://192.168.1.38:6000 --frame-shape 720,1280,3 --conf 0.35 --iou 0.5 --classes \"person,chair,table,laptop,bottle,monitor,keyboard,backpack,medicine bottle,door\"'"
 
 # T7 — detections → ZMQ bridge (ROS2 /detections → ZMQ PUB :5570).
 # Backend's DETECT_ZMQ_* env (T1) consumes this and fans out via SSE.

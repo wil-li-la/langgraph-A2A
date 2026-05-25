@@ -49,3 +49,6 @@ backend/cam_bridge/key.pem
 backend/mediamtx/mediamtx
 backend/mediamtx/mediamtx_v*.tar.gz
 backend/mediamtx/*.bak
+
+# Brainstorming visual-companion session artifacts (HTML mockups, state, logs)
+.superpowers/

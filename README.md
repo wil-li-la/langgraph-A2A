@@ -22,7 +22,7 @@ pip install -e .
 python -m app --host localhost --port 9999
 
 # Test workflow directly (bypasses A2A)
-python -m app.healthcare.medication_delivery 張小明 阿斯匹靈
+python -m app.workflows.medication_delivery 張小明 阿斯匹靈
 ```
 
 Required env vars — copy from `.env.example` and fill in:

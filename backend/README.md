@@ -127,6 +127,6 @@ See [INSTALL.md](./INSTALL.md) for full dependency setup (includes private `cure
 python -m app --host localhost --port 9999
 
 # Test CLI directly (bypasses A2A)
-python -m app.healthcare.medication_delivery 張小明 阿斯匹靈
+python -m app.workflows.medication_delivery 張小明 阿斯匹靈
 ```
 

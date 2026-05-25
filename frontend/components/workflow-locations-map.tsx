@@ -177,17 +177,31 @@ export function WorkflowLocationsMap({
           )
         })}
 
-        {/* Robot pose (read-only) */}
+        {/* Robot pose (read-only). Drawn LAST so it sits on top of any
+            location marker that shares the same spot — important since
+            AMCL often seeds at the same world coords as the "origin"
+            location. The outer dashed ring + label make it visually
+            distinct from the colored location markers. */}
         {robotPx && pose && (
           <g pointerEvents="none">
             <circle
               cx={robotPx.px}
               cy={robotPx.py}
+              r={robotRadiusPx * 1.4}
+              fill="none"
+              stroke="#ef4444"
+              strokeWidth={2}
+              strokeDasharray="6 4"
+              opacity={0.8}
+            />
+            <circle
+              cx={robotPx.px}
+              cy={robotPx.py}
               r={robotRadiusPx}
               fill="#ef4444"
-              fillOpacity={0.5}
+              fillOpacity={0.6}
               stroke="#7f1d1d"
-              strokeWidth={2}
+              strokeWidth={3}
             />
             <line
               x1={robotPx.px}
@@ -195,9 +209,19 @@ export function WorkflowLocationsMap({
               x2={robotPx.px + Math.cos(pose.theta) * headingLenPx}
               y2={robotPx.py - Math.sin(pose.theta) * headingLenPx}
               stroke="#7f1d1d"
-              strokeWidth={3}
+              strokeWidth={4}
               strokeLinecap="round"
             />
+            <text
+              x={robotPx.px + robotRadiusPx * 1.6}
+              y={robotPx.py + 4}
+              fontSize={robotRadiusPx * 1.5}
+              fontFamily="monospace"
+              fontWeight="bold"
+              fill="#ef4444"
+            >
+              robot
+            </text>
           </g>
         )}
 

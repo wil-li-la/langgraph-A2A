@@ -88,7 +88,12 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
         parameters=[str(config_dir / "nav2_params.yaml")],
         remappings=[
-            ("depth", "/camera/depth/image_rect"),
+            # sensors_bridge publishes /camera/depth/image_rect_raw (the
+            # robot-side Realsense topic name); depthimage_to_laserscan's
+            # default input is just "depth". Remap to the _raw topic, not
+            # the unsuffixed one (which nvblox auto-creates but no one
+            # publishes to — would leave /scan silent and AMCL inactive).
+            ("depth", "/camera/depth/image_rect_raw"),
             ("depth_camera_info", "/camera/depth/camera_info"),
             ("scan", "/scan"),
         ],

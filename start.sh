@@ -90,7 +90,7 @@ EOF
 # bridge in the yolo_detect window). Container runs --pid=host so the
 # ZMQ socket is reachable on localhost.
 tmux new-session -d -s "$SESSION" -n backend -c "$REPO_ROOT/backend" \
-  'source .venv/bin/activate && DETECT_ZMQ_HOST=localhost DETECT_ZMQ_PORT=5570 exec python -m app'
+  'source .venv/bin/activate && DETECT_ZMQ_HOST=localhost DETECT_ZMQ_PORT=5570,5571 exec python -m app'
 
 # Keep dead panes visible so crashes don't vanish silently. -g sets it for
 # the whole session including windows we create below.
@@ -130,13 +130,25 @@ tmux new-window -t "$SESSION" -n yolo_detect -c "$REPO_ROOT" \
 tmux new-window -t "$SESSION" -n detect_bridge -c "$REPO_ROOT" \
   "exec docker exec -it $CONTAINER bash -lc 'source /opt/ros/humble/setup.bash && exec python3 /workspaces/langgraph-A2A/backend/nav_bridge/detection_bridge.py --camera head --zmq-port 5570 --image-w 720 --image-h 1280'"
 
-# T8 — frontend dev server (Turbo, http://localhost:3000)
+# T8 — YOLO-World on d405 wrist cam (ZMQ 6002 rgb, 640x480 upright).
+# Distinct node name + output topic so it coexists with the head instance
+# on the same ROS graph. Same vocabulary, but conf is left at default
+# because the gripper view is close-up and less prone to false-positives.
+tmux new-window -t "$SESSION" -n yolo_wrist -c "$REPO_ROOT" \
+  "exec docker exec -it $CONTAINER bash -lc 'source /opt/ros/humble/setup.bash && source /workspaces/isaac_ros-dev/install/setup.bash && exec python3 /workspaces/langgraph-A2A/backend/nav_bridge/yolo_world_node.py --zmq-addr tcp://192.168.1.38:6002 --zmq-topic rgb --frame-shape 480,640,3 --rotate none --node-name yolo_world_wrist --output-topic /detections_gripper --frame-id camera_color_optical_frame_gripper --conf 0.3 --iou 0.5 --classes \"medicine bottle,pill bottle,bottle,box,cup,can,book,phone,marker,charger,cable,hand,fingers,apriltag\"'"
+
+# T9 — wrist detect_bridge (ROS2 /detections_gripper → ZMQ PUB :5571).
+# Backend's DETECT_ZMQ_PORT=5570,5571 fans in both head + gripper streams.
+tmux new-window -t "$SESSION" -n detect_bridge_wrist -c "$REPO_ROOT" \
+  "exec docker exec -it $CONTAINER bash -lc 'source /opt/ros/humble/setup.bash && exec python3 /workspaces/langgraph-A2A/backend/nav_bridge/detection_bridge.py --camera gripper --detections-topic /detections_gripper --zmq-port 5571 --image-w 640 --image-h 480'"
+
+# T10 — frontend dev server (Turbo, http://localhost:3000)
 tmux new-window -t "$SESSION" -n frontend -c "$REPO_ROOT/frontend" \
   'exec pnpm dev'
 
 tmux select-window -t "$SESSION:backend"
 
-echo "session $SESSION started (windows: backend, nav, mediamtx, cam_bridge, room_cams, yolo_detect, detect_bridge, frontend)"
+echo "session $SESSION started (windows: backend, nav, mediamtx, cam_bridge, room_cams, yolo_detect, detect_bridge, yolo_wrist, detect_bridge_wrist, frontend)"
 echo "attach with:  tmux attach -t $SESSION"
 
 exec tmux attach -t "$SESSION"

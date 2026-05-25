@@ -111,7 +111,7 @@ SENSOR_QOS = QoSProfile(
 
 class YoloWorldNode(Node):
     def __init__(self, args: argparse.Namespace) -> None:
-        super().__init__("yolo_world")
+        super().__init__(args.node_name)
 
         # ---- Parameters (overridable at launch + at runtime) -------------
         self.declare_parameter(
@@ -179,8 +179,12 @@ class YoloWorldNode(Node):
         self._apply_classes(self._param_classes())
 
         # ---- Pubs ---------------------------------------------------------
-        self._det_pub = self.create_publisher(Detection2DArray, "/detections", 10)
-        self._annot_pub = self.create_publisher(Image, "/detections/annotated", 1)
+        # Per-instance topic suffix lets multi-camera setups coexist on one
+        # ROS graph (e.g. /detections + /detections_gripper).
+        det_topic = args.output_topic
+        annot_topic = f"{det_topic}/annotated"
+        self._det_pub = self.create_publisher(Detection2DArray, det_topic, 10)
+        self._annot_pub = self.create_publisher(Image, annot_topic, 1)
 
         # ---- ZMQ SUB thread -----------------------------------------------
         self._zmq_stop = threading.Event()
@@ -475,6 +479,16 @@ def parse_args() -> argparse.Namespace:
         default="ccw",
         choices=["none", "cw", "ccw", "180"],
         help="Pre-rotate frame to upright. Stretch3 arducam mounts 90° → ccw.",
+    )
+    p.add_argument(
+        "--node-name",
+        default="yolo_world",
+        help="ROS node name — set distinct per instance when running multi-cam.",
+    )
+    p.add_argument(
+        "--output-topic",
+        default="/detections",
+        help="ROS topic for Detection2DArray output. Annotated goes to <topic>/annotated.",
     )
     p.add_argument(
         "--classes",

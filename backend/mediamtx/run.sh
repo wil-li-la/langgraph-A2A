@@ -6,4 +6,7 @@ if [[ ! -x "${SCRIPT_DIR}/mediamtx" ]]; then
     echo "[ERROR] mediamtx binary not found. Run ./install.sh first." >&2
     exit 1
 fi
+# MediaMTX resolves cert/key paths relative to its working directory, so
+# run from SCRIPT_DIR to keep the `cert.pem`/`key.pem` references portable.
+cd "${SCRIPT_DIR}"
 exec "${SCRIPT_DIR}/mediamtx" "${SCRIPT_DIR}/mediamtx.yml"

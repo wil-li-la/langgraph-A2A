@@ -68,7 +68,7 @@ fi
 # manages separately.
 if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
   echo "error: docker container '$CONTAINER' is not running." >&2
-  echo "       start it before running this script (it owns the nav stack)." >&2
+  echo "       start it before running this script (it runs the YOLO detection)." >&2
   exit 1
 fi
 
@@ -96,24 +96,17 @@ tmux new-session -d -s "$SESSION" -n backend -c "$REPO_ROOT/backend" \
 # the whole session including windows we create below.
 tmux set-option -t "$SESSION" -g remain-on-exit on
 
-# T2 — full nav stack (AMCL + nav_service + bridges + nvblox) inside the
-# isaac_ros_dev container. run_nav.sh cleans up orphans, sources ROS, and
-# execs ros2 launch nav.launch.py.
-tmux new-window -t "$SESSION" -n nav -c "$REPO_ROOT" \
-  "exec docker exec -it $CONTAINER /workspaces/langgraph-A2A/backend/nav_bridge/run_nav.sh"
+# NOTE: the lab nav stack (nvblox + Nav2 + nav_service/bridges) was removed
+# 2026-06-01 — on-robot FUNMAP fully replaced it. Navigation now plans on the
+# robot (goto:5557). The isaac_ros_dev container is still required, but only
+# for the GPU YOLO-World detection windows below.
 
 # T3 — MediaMTX (RTSP→WebRTC/HLS fan-out for room cams, current arch).
 tmux new-window -t "$SESSION" -n mediamtx -c "$REPO_ROOT/backend/mediamtx" \
   'exec ./run.sh'
 
-# T4 — cam_bridge (legacy Python MJPEG bridge; kept for fallback).
-tmux new-window -t "$SESSION" -n cam_bridge -c "$REPO_ROOT/backend/cam_bridge" \
-  'exec ./run.sh'
-
-# T5 — room_cameras ROS2→MJPEG bridge (ED305 overhead cams, port 9997).
-# Runs under system Python 3.10 because rclpy ships with ROS2 Humble.
-tmux new-window -t "$SESSION" -n room_cams -c "$REPO_ROOT/backend/room_cameras" \
-  'exec ./run_bridge.sh'
+# NOTE: cam_bridge (NVENC MJPEG) + room_cameras (ROS2→MJPEG :9997) windows were
+# removed 2026-06-01 — MediaMTX is the sole room-camera transport. See ADR-0001.
 
 # T6 — YOLO-World detector (ROS2 inside container, ZMQ input). Post-FUNMAP
 # the robot publishes camera frames on ZMQ tcp://192.168.1.38:6000 (arducam)
@@ -148,7 +141,7 @@ tmux new-window -t "$SESSION" -n frontend -c "$REPO_ROOT/frontend" \
 
 tmux select-window -t "$SESSION:backend"
 
-echo "session $SESSION started (windows: backend, nav, mediamtx, cam_bridge, room_cams, yolo_detect, detect_bridge, yolo_wrist, detect_bridge_wrist, frontend)"
+echo "session $SESSION started (windows: backend, mediamtx, yolo_detect, detect_bridge, yolo_wrist, detect_bridge_wrist, frontend)"
 echo "attach with:  tmux attach -t $SESSION"
 
 exec tmux attach -t "$SESSION"

@@ -38,46 +38,53 @@ Frontend connects to backend via `NEXT_PUBLIC_API_URL` (defaults to `http://loca
 
 - **Frontend**: hosted on **Cloudflare Pages** as a static export (24/7, no laptop uptime needed). `next.config.mjs` has `output: 'export'`. Pages auto-builds `frontend/` on every push to `main`. `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_ROBOT_HOST`, and `NEXT_PUBLIC_ROOM_CAMERAS_URL` are set in the Pages project's env vars and baked at build time.
 - **Backend**: runs on the lab laptop and is exposed via **Cloudflare Tunnel** at `stretch-api.<domain>`. See root README for tunnel config.
-- Docker has been removed for the backend (no Dockerfiles, no compose for the A2A service) — use the venv install path in `backend/INSTALL.md`. The nav stack does still run inside the `isaac_ros_dev` container because nvblox needs CUDA libs from there.
+- Docker has been removed for the backend (no Dockerfiles, no compose for the A2A service) — use the venv install path in `backend/INSTALL.md`. The GPU YOLO-World detection nodes still run inside the `isaac_ros_dev` container (it has the only working torch+CUDA+ultralytics env on this host). Navigation no longer runs in the container — it moved to the robot (FUNMAP).
 
-### Lab daily run (3 terminals)
+### Lab daily run
+
+`./start.sh` launches the whole lab stack in one tmux session (`stretch-lab`):
+backend, MediaMTX (room cams), cam_bridge (legacy fallback), room_cameras, the GPU
+YOLO-World detection windows (head + wrist, inside `isaac_ros_dev`), and the
+frontend. Attach with `tmux attach -t stretch-lab`.
+
+Prereqs the script does **not** start for you: the `isaac_ros_dev` container must
+be up (it runs the GPU YOLO windows), and the Stretch3 driver must be running on
+the robot (`ssh stretch-se3-3099.local`, then `uv run python -m stretch3_zmq.driver`).
+
+> **Nav is on the robot now.** The old lab nav stack (`run_nav.sh` / `nav.launch.py`
+> / nvblox / Nav2 / `nav_service` / lab-AMCL) was removed 2026-06-01 — on-robot
+> FUNMAP fully replaced it; navigation plans on the robot (goto:5557). The
+> container is still needed, but only for GPU YOLO detection.
+
+### Room cameras (MediaMTX — sole transport)
+
+The ED305 lab has 16 fixed Basler room cameras (canonical term: **room cameras** —
+see `CONTEXT.md`). Each camera host emits H264 RTSP (`rtsp://192.168.1.13:8554/cam_N`
+right, `rtsp://192.168.1.56:8554/cam_N` left). **MediaMTX** (`backend/mediamtx/`, a
+single Go binary) pulls those RTSP feeds and re-muxes them to WebRTC (WHEP, LAN) and
+HLS-LL (tunnel) — zero transcoding on this host. See `docs/camera-architecture.md`
+and `docs/adr/0001-mediamtx-sole-room-camera-transport.md`.
 
 ```bash
-# T1 — backend A2A + dashboard API (host venv)
-cd backend && source .venv/bin/activate && python -m app
-
-# T2 — full nav stack (in isaac_ros_dev container, restart-safe)
-docker exec -it isaac_ros_dev /workspaces/langgraph-A2A/backend/nav_bridge/run_nav.sh
-#   --only-bridges    skip nvblox + Nav2 (Phase 1a)
-#   --status          report orphan/port state, do not launch
-
-# T3 — Cloudflare tunnel (production only)
-cloudflared tunnel run …
+cd backend/mediamtx
+./run.sh                                 # RTSP :8554, HLS :8888, WebRTC :8889 (+ICE :8189)
 ```
 
-`run_nav.sh` cleans up any orphan processes from prior crashed launches, waits for ports `9090/5560/5561` to free, sources `/opt/ros/humble` + `/workspaces/isaac_ros-dev/install`, sets `ROS_DOMAIN_ID=37`, verifies the nvblox issue-#141 patch is built into the binary, then `exec`s `ros2 launch nav.launch.py`. If you hit `Address already in use` errors or a half-up stack, just re-run the same command — that's the whole recovery flow. The launch itself uses `on_exit=Shutdown()` for the critical `sensors_bridge` and `nav_service` processes, so a crash of either tears the whole stack down loudly instead of leaving a half-up mess for the next session to inherit.
+The frontend (`frontend/components/room-cameras-grid.tsx`, page `/cameras`) reads
+`NEXT_PUBLIC_MEDIAMTX_WEBRTC_URL` (LAN) or `NEXT_PUBLIC_MEDIAMTX_HLS_URL` (tunnel) and
+renders the 13-tile grid. WebRTC ICE is pinned to `eno2`
+(`webrtcIPsFromInterfacesList`) to avoid docker-bridge ICE candidates blacking out
+tiles. TLS uses an mkcert cert at `backend/mediamtx/cert.pem` (gitignored).
 
-### Room cameras (ROS2 → MJPEG bridge)
-
-The ED305 lab has 16 overhead Basler cameras published as ROS2 `sensor_msgs/CompressedImage` topics by [`ED305_pylon_viewer`](https://github.com/chen1328/ED305_pylon_viewer) (`ros2_node` branch). To surface them in the dashboard *without* polluting the backend venv, there is an isolated sidecar at `backend/room_cameras/` that runs under the system Python ROS2 ships (Python 3.10) and re-serves each topic as MJPEG over HTTP.
-
-```bash
-# one-time: install ROS2 humble + topic discovery
-bash /tmp/ED305_pylon_viewer/scripts/install_ros2.sh
-
-# run the bridge (sources /opt/ros/humble/setup.bash itself)
-cd backend/room_cameras
-./run_bridge.sh                        # 0.0.0.0:9997, both sides, 8 cams/side
-```
-
-Endpoints: `GET /` mosaic, `GET /cam/<side>/<idx>` MJPEG, `GET /healthz` topic list. Frontend reads `NEXT_PUBLIC_ROOM_CAMERAS_URL` and renders the grid at `/cameras`. Bridge is decoupled from the backend (separate process, separate Python, separate port) — stopping it does not affect A2A or workflow paths. See `backend/room_cameras/README.md` for QoS/`ROS_DOMAIN_ID` notes.
+> The prior fallbacks — `backend/cam_bridge/` (NVENC h264), `backend/room_cameras/`
+> (ROS2→MJPEG :9997), and direct web_video_server MJPEG — were removed 2026-06-01.
 
 ## Architecture
 
 ### Backend (`backend/app/`)
 
 - **`__main__.py`** — CLI entry point. Builds the AgentCard, wires A2AStarletteApplication with DefaultRequestHandler, adds workflow REST routes, starts Uvicorn.
-- **`api/a2a.py`** — Bridges A2A protocol to LangGraph. `execute()` parses instructions via MockNLU (with regex fallback + hardcoded defaults), runs `MedicationDeliveryAgent` in `mode="auto"`, returns artifacts. Special-cases capability query strings (Chinese/English). The blocking workflow run is offloaded via `asyncio.to_thread` so the event loop stays free.
+- **`api/a2a.py`** — Bridges the A2A protocol to LangGraph. `MedicationAgentExecutor.execute()` extracts a **structured** payload from the inbound Message — a `DataPart` (or JSON `TextPart`) of `{"patient": str, "medicine": str}` — with **no free-text NLU, no regex fallback, and no hardcoded defaults**: missing/empty fields raise `InvalidParamsError`. It runs `MedicationDeliveryAgent` in `mode="auto"` and returns artifacts. The blocking workflow run is offloaded via `asyncio.to_thread` so the event loop stays free. (MockNLU is used only by the dashboard's `/api/workflow/execute` path, not here.)
 - **`api/workflow.py`** — REST endpoints for the dashboard and A2A callers:
   - `GET /api/workflow` — graph structure (nodes + edges)
   - `POST /api/workflow/execute` — one-shot execution (manual mode, uses MockNLU)
@@ -160,27 +167,26 @@ The driver publishes robot state at 15 Hz on port 5555. Robot hostname: `stretch
 
 Config lives on the robot at `Desktop/stretch3-zmq/config.yaml` — defines ports, TTS provider (fish_audio), ASR (deepgram, language: zh-TW, mic: DJI MIC MINI), and motion limits for all 8 joints.
 
-### TODO: Robot-side goto service (Nav2 obstacle avoidance)
+### Robot-side goto service (SHIPPED 2026-05-18)
 
-Port 5557 (goto, REQ/REP) **does not exist** in the current stretch3-zmq driver. It must be added to `stretch3-zmq` on the robot before `navigate_skill` can work.
+Port 5557 (goto, REQ/REP) **exists** on the robot — shipped on stretch3-zmq branch
+`feat/nvblox-robot-driver-migration`. It accepts an absolute pose goal as msgpack
+`{"x": float, "y": float, "theta": float}` and replies `"ok"` on success or a
+structured `"<status>: <reason>"` string on failure (`no_path`, `timeout`,
+`obstructed`, `bad_target`, …). The legacy velocity endpoint (`{"linear","angular"}`)
+moved to port **5559** as `goto_velocity`. Full wire contract:
+`docs/stretch_server_goto_refactor.md` and `docs/steretch3_protocol/protocols.md`.
 
-What to add in `stretch3-zmq`:
+> **Lab nav stack is dead** (confirmed 2026-06-01). On-robot FUNMAP fully replaced
+> the lab nvblox/Nav2/`nav_service` stack; goto:5557 plans on the robot. The
+> `start.sh` nav window + `nav_bridge/run_nav.sh`/`nav.launch.py`/`sensors_bridge`/
+> `cmdvel_bridge`/`nav_service` are legacy — scheduled for removal, see
+> `docs/simplification-plan.md` item 8b. The YOLO files in `nav_bridge/` stay (live
+> perception, not nav).
 
-1. **`driver/services/goto.py`** — new service:
-   - ZMQ REP socket on `config.ports.goto` (5557)
-   - Receives msgpack `{"x": float, "y": float, "theta": float}`
-   - Calls `nav2_simple_commander.BasicNavigator.goToPose()` with the goal
-   - Blocks until `navigator.isTaskComplete()`
-   - Sends reply: `"ok"` on success, error string on failure
-
-2. **`driver/__main__.py`** — start the service:
-   - Import `goto_service` and launch it as a `threading.Thread` (same pattern as other services)
-
-3. **`driver/config.py`** — ensure `ports.goto: int = 5557` is defined (may already be present)
-
-Nav2 must be running on the robot (`ros2 launch stretch_nav2 navigation.launch.py`) for the goto service to work.
-
-Mac-side `navigate_avoidance` in `cure/src/cure/skills/navigate.py` already sends the correct `{"x", "y", "theta"}` msgpack format and waits for `"ok"`. The original `navigate_skill` (direct velocity control) is unchanged.
+Mac-side `navigate_avoidance` in `cure/src/cure/skills/navigate.py` sends the
+`{"x", "y", "theta"}` goal and waits for `"ok"`. The original `navigate_skill`
+(direct velocity control) is unchanged.
 
 ---
 

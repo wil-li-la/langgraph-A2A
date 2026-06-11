@@ -4,16 +4,16 @@ This document explains the architecture and implementation of the live video str
 
 ## Overview
 
-The streaming service provides real-time video feeds from the robot's cameras (Intel RealSense d405 and d435if) to the web interface. It uses **MJPEG (Motion JPEG)** over HTTP, which is natively supported by browser `<img>` tags and provides low-latency visualization without complex client-side decoders.
+The streaming service provides a real-time video feed from the robot's gripper camera (Intel RealSense D405) to the web interface. It uses **MJPEG (Motion JPEG)** over HTTP, which is natively supported by browser `<img>` tags and provides low-latency visualization without complex client-side decoders.
+
+The dashboard's "Head" tile is **not** served by this MJPEG bridge; it comes from the robot's teleop WebSocket (`/ws/teleop`, cam_id=1) which streams JPEG-encoded frames from the head camera (Arducam OV9782 on ZMQ port 6000 in the post-FUNMAP driver). The legacy d435if MJPEG routes were removed on 2026-05-27 — port 6001 is silent in the current driver and the Intel RealSense D435if at the head was replaced by the Arducam.
 
 ## Architecture
 
 ### 1. Data Source (ZMQ)
 The robot's hardware drivers publish camera frames over **ZeroMQ (ZMQ)** using a PUB/SUB pattern.
 - **Protocol**: Multipart messages containing a topic, a timestamp, and raw/compressed payload bytes.
-- **Ports**: 
-  - `6002` for the Gripper camera (d405).
-  - `6001` for the Head camera (d435if).
+- **Port**: `6002` for the Gripper camera (D405).
 - **Topics**: `rgb` and `depth`.
 
 ### 2. Backend Processing (`camera_api.py`)
@@ -38,9 +38,6 @@ The service exposes the following routes in a flatter structure to ensure reliab
 | `/api/stream/d405/rgb` | Raw RGB feed from the Gripper camera |
 | `/api/stream/d405/depth` | Colorized depth map from the Gripper camera |
 | `/api/stream/d405/mix` | Overlay of RGB and Depth for the Gripper camera |
-| `/api/stream/d435if/rgb` | Raw RGB feed from the Head camera |
-| `/api/stream/d435if/depth` | Colorized depth map from the Head camera |
-| `/api/stream/d435if/mix` | Overlay of RGB and Depth for the Head camera |
 
 ## Frontend Integration (`video-panel.tsx`)
 

@@ -21,9 +21,6 @@ from app.api.camera import (
     stream_d405_rgb,
     stream_d405_depth,
     stream_d405_mix,
-    stream_d435if_rgb,
-    stream_d435if_depth,
-    stream_d435if_mix
 )
 
 from app.common.sse_log_bridge import bridge_logs_to_queue
@@ -805,9 +802,6 @@ workflow_routes = [
     Route("/api/stream/d405/rgb", stream_d405_rgb, methods=["GET"]),
     Route("/api/stream/d405/depth", stream_d405_depth, methods=["GET"]),
     Route("/api/stream/d405/mix", stream_d405_mix, methods=["GET"]),
-    Route("/api/stream/d435if/rgb", stream_d435if_rgb, methods=["GET"]),
-    Route("/api/stream/d435if/depth", stream_d435if_depth, methods=["GET"]),
-    Route("/api/stream/d435if/mix", stream_d435if_mix, methods=["GET"]),
     Route("/api/workflows", get_workflows, methods=["GET"]),
     Route("/api/workflows/{workflow_id}/locations",
           list_workflow_locations, methods=["GET"]),

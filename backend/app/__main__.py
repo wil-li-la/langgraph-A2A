@@ -32,6 +32,7 @@ except ImportError:
 
 from app.api.a2a import MedicationAgentExecutor
 from app.api.agent import agent_routes
+from app.api.detect_stream import detect_stream_routes
 from app.api.nav import nav_routes
 from app.api.teleop import teleop_websocket
 from app.api.workflow import workflow_routes
@@ -177,6 +178,17 @@ def main(host: str, port: int):
         for route in nav_routes:
             starlette_app.routes.insert(0, route)
 
+        # Mount detection event SSE (real-time bbox overlay on dashboard)
+        for route in detect_stream_routes:
+            starlette_app.routes.insert(0, route)
+
+        # Start ROS-side YOLO-World ZMQ consumer (no-op when env unset).
+        # Detections land in the same SSE pipe the qwen2.5vl path uses, so
+        # the dashboard overlay needs no changes whether the source is the
+        # streaming YOLO node or the on-demand VLM tool.
+        from app.api.detect_zmq_consumer import start_if_configured
+        start_if_configured()
+
         # Mount teleop WebSocket relay
         starlette_app.routes.insert(0, WebSocketRoute("/ws/teleop", teleop_websocket))
 
@@ -194,7 +206,7 @@ def main(host: str, port: int):
         logger.info(f'A2A JSON-RPC endpoint: POST {public_url}/')
         logger.info(f'Dashboard workflow API: {public_url}/api/workflow')
         logger.info(f'Agent API (LLM-driven): {public_url}/api/agent/info')
-        logger.info(f'Nav proxy (nvblox): {public_url}/api/nav/* → tcp://{os.getenv("NVBLOX_NAV_HOST", "localhost")}:{os.getenv("NVBLOX_NAV_PORT", "5560")}')
+        logger.info(f'Nav proxy (FUNMAP): {public_url}/api/nav/* → tcp://{os.getenv("STRETCH_ROBOT_HOST", "192.168.1.38")} (goto:{os.getenv("STRETCH_GOTO_PORT", "5557")} map:{os.getenv("STRETCH_MAP_PORT", "5562")} amcl_pose:{os.getenv("STRETCH_AMCL_POSE_PORT", "5563")})')
         logger.info(f'Teleop WebSocket relay: {public_url}/ws/teleop')
         
         # Run the server

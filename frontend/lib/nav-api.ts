@@ -1,9 +1,10 @@
 /**
- * Backend client for the nvblox nav proxy. See backend/app/api/nav.py.
+ * Backend client for the on-robot nav proxy. See backend/app/api/nav.py.
  *
- * The backend forwards /api/nav/goto to the lab nav_service over ZMQ. When
- * the lab service is down, /goto resolves with status="ROBOT_ERROR" rather
- * than throwing — UI should surface that instead of crashing.
+ * The backend forwards /api/nav/goto to the robot's goto service (ZMQ 5557),
+ * which plans on the robot via FUNMAP. When the robot is down, /goto resolves
+ * with status="ROBOT_ERROR" rather than throwing — UI should surface that
+ * instead of crashing.
  */
 
 import { API_BASE } from "./api"
@@ -90,7 +91,14 @@ export async function fetchNavPose(): Promise<NavPose | null> {
   return r.json()
 }
 
-export async function setNavPose(p: { x: number; y: number; theta: number }): Promise<NavPose> {
+export interface SetNavPoseResult {
+  pose: NavPose
+  seed: { forwarded: boolean; ok?: boolean; reply?: string; error?: string }
+}
+
+export async function setNavPose(
+  p: { x: number; y: number; theta: number },
+): Promise<SetNavPoseResult> {
   const r = await fetch(`${API_BASE}/api/nav/pose`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

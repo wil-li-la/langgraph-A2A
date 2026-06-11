@@ -26,7 +26,24 @@ Endpoints once the camera host's RTSP server is up:
 | Browser HLS (fallback) | `https://<this-host>:8888/cam_<N>/index.m3u8` |
 | Inference / GStreamer pull | `rtsp://<this-host>:8554/cam_<N>` |
 
-The cert + key reused from `../cam_bridge/cert.pem`. If you've already trusted that cert in Chrome, WebRTC + HLS work without any new dance.
+### TLS cert (mkcert)
+
+Cert + key live at `../cam_bridge/cert.pem,key.pem` and are issued by [mkcert](https://github.com/FiloSottile/mkcert)'s local root CA so every browser, `curl`, and Node process on this machine trusts them with no per-user click-through.
+
+Bootstrap once per dev machine:
+
+```bash
+sudo apt install -y mkcert libnss3-tools
+mkcert -install                                # adds root CA to system + Chrome/Firefox NSS db (restart browser)
+cd backend/cam_bridge
+mkcert -cert-file cert.pem -key-file key.pem \
+  localhost 127.0.0.1 192.168.1.47 192.168.1.100 hcis-s28 hcis-s28.local ::1
+pkill mediamtx && cd ../mediamtx && ./run.sh   # pick up new cert
+```
+
+SAN list must include every hostname/IP a viewer might use (LAN access from phones/tablets needs the LAN IP, not just `localhost`). Re-run `mkcert -cert-file …` to add names later; no need to re-install the root CA.
+
+Cert expires in ~2.25 years (mkcert default). On expiry, re-run the same `mkcert -cert-file …` command + restart MediaMTX.
 
 ## Wait state — what to expect before the host repo's issue lands
 

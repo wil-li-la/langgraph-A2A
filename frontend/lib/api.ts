@@ -413,3 +413,63 @@ function mapNodeType(type: string): WorkflowNode["type"] {
       return "process"
   }
 }
+
+
+// ---------- Detection event stream (real-time bbox overlay) ----------
+
+export interface DetectionBox {
+  label: string
+  confidence: number
+  description?: string
+  bbox_2d: [number, number, number, number]
+  bbox_norm: [number, number, number, number]
+}
+
+export interface DetectionEvent {
+  ts: string
+  camera: "head" | "arm" | string
+  query: string
+  location: string
+  image_w: number
+  image_h: number
+  image_path: string
+  detections: DetectionBox[]
+}
+
+/**
+ * Fetch the most-recent detection per camera. Used to paint immediately
+ * on dashboard load before the SSE stream delivers a fresh event.
+ */
+export async function fetchLatestDetections(): Promise<Record<string, DetectionEvent>> {
+  try {
+    const res = await fetch(`${API_BASE}/api/detect/latest`)
+    if (!res.ok) return {}
+    const data = (await res.json()) as { latest?: Record<string, DetectionEvent> }
+    return data.latest ?? {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Subscribe to the detection SSE stream. Returns an unsubscribe function.
+ * The handler is called for every event (including the initial replay of
+ * the per-camera latest snapshot the backend sends on connect).
+ */
+export function subscribeDetections(handler: (event: DetectionEvent) => void): () => void {
+  const url = `${API_BASE}/api/detect/stream`
+  const es = new EventSource(url)
+  es.onmessage = (m) => {
+    try {
+      const evt = JSON.parse(m.data) as DetectionEvent
+      if (evt && evt.camera) handler(evt)
+    } catch {
+      // ignore malformed frames
+    }
+  }
+  es.onerror = () => {
+    // EventSource auto-reconnects; nothing to do here except keep the
+    // handler alive. Closing on error would defeat the auto-retry.
+  }
+  return () => es.close()
+}

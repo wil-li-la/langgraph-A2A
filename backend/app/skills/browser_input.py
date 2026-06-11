@@ -56,6 +56,14 @@ def browser_input_skill(session_id: str, prompt: str, *, timeout_s: float = 120.
     dependencies from the caller beyond the state it already has, returns a
     plain transcript string.
     """
+    import os
+    # DRY_RUN by itself still blocks here so the operator can verify the
+    # await_input UX. Set DRY_RUN_AUTORESPOND=1 to auto-complete (used by
+    # scripts/verify_workflow.mjs for unattended E2E runs).
+    if os.environ.get("DRY_RUN_AUTORESPOND", "").lower() in ("1", "true", "yes", "on"):
+        canned = os.environ.get("DRY_RUN_TRANSCRIPT", "好的，我是病患張小明")
+        logger.info("[DRY_RUN_AUTORESPOND] browser_input_skill(%s) → %r", session_id, canned)
+        return canned
     evt = threading.Event()
     _pending[session_id] = {"event": evt, "result": ""}
 

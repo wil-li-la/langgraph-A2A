@@ -27,6 +27,12 @@ export function VoiceInput({ onResult, prompt, awaiting = false }: VoiceInputPro
     }
   }, [])
 
+  // When the workflow starts awaiting input, focus the text input so the
+  // operator can start typing immediately without hunting for the cursor.
+  useEffect(() => {
+    if (awaiting) inputRef.current?.focus()
+  }, [awaiting])
+
   const startListening = useCallback(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) return

@@ -16,6 +16,7 @@ import { RunstopButton } from "./runstop-button";
 import { HomeButton } from "./home-button";
 import { TtsInput } from "./tts-input";
 import { subscribeNavStatus, type NavTaskState } from "@/lib/nav-api";
+import { useNavStatus } from "@/contexts/nav-status";
 
 let chatIdCounter = 0;
 
@@ -32,6 +33,10 @@ export function TeleopPage() {
   const navInFlight = navState === "pending" || navState === "running";
 
   const { status, cameras, isConnected, sendCommand } = useRobotConnection();
+  // AMCL-localized pose in the `amcl_map` frame (from backend /api/nav SSE).
+  // The teleop WS `status.robot_pose` is raw wheel odom and drifts — don't
+  // use it for the static-map overlay.
+  const { pose: amclPose } = useNavStatus();
 
   const addChatEntry = useCallback((kind: "speech" | "listen", text: string) => {
     const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -130,7 +135,7 @@ export function TeleopPage() {
               <div className="flex-1 min-h-0">
                 <NavMap
                   navState={status.nav_state}
-                  robotPose={status.robot_pose}
+                  robotPose={amclPose}
                   navPath={status.nav_path}
                   sendCommand={sendCommand}
                 />

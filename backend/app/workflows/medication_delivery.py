@@ -1,6 +1,7 @@
 """LangGraph-based medication delivery agent for HelloRobot Stretch."""
 
 import operator
+import os
 import time
 import logging
 from pathlib import Path
@@ -225,23 +226,72 @@ def navigate_to_pharmacy_node(state: AgentState) -> dict:
     }
 
 
+def _visual_precheck_for_pickup(state: AgentState) -> None:
+    """Run a non-blocking VLM detect pass before grasping.
+
+    Captures the head camera, asks the detector for medication-shaped
+    objects, logs the result, and persists detections to scene memory
+    under location='pharmacy' (matching cure_target for that named pose).
+    Any failure is logged at WARN and swallowed — the grasp must still run.
+    """
+    if os.environ.get("WORKFLOW_VLM_PRECHECK", "1").lower() in ("0", "false", "no", "off"):
+        return
+    try:
+        from app.tools.detect_tools import detect_impl
+        med = state.get("medication_name") or "medication"
+        query = f"a bottle, box, or container of medication ({med})"
+        text, _record, dets = detect_impl(
+            query=query,
+            camera="head",
+            location_override="pharmacy",
+            check_budget=False,
+        )
+    except Exception as e:
+        _log("⚠", f"VLM 預檢跳過 (init failed): {e}")
+        return
+
+    if text.startswith("FAILED:") or text.startswith("BLOCKED:"):
+        _log("⚠", f"VLM 預檢未執行: {text[:160]}")
+        return
+
+    if not dets:
+        _log("👁", f"VLM 預檢: 未發現符合的藥物物件 ({med})")
+        return
+
+    top = dets[0]
+    _log(
+        "👁",
+        f"VLM 預檢通過: 看到 {len(dets)} 個候選 "
+        f"(最佳: '{top.get('label')}' conf={float(top.get('confidence') or 0):.2f})",
+    )
+
+
 def pickup_medication_node(state: AgentState) -> dict:
     """Call grasp_skill() to detect and pick up the medication.
 
-    grasp() has built-in medication detection, so a separate detect step
-    is unnecessary. Returns bool indicating success.
+    Before invoking the heavier ArUco + IK grasp pipeline, runs an open-vocab
+    VLM pre-check (qwen2.5vl by default) on the head camera. This is purely
+    informational — it logs what the VLM sees and seeds scene memory under
+    location='pharmacy' so the agentic path's recall_object() can find it
+    later. A failed VLM call never blocks the grasp.
     """
     _log_node_entry("pickup_med", state)
     _section("🤖", f"機械臂操作中: 抓取 {state['medication_name']}")
 
-    try:
-        success = grasp_skill("medicine")
-    except TypeError as e:
-        # IK solver returns None when it can't reach the target pose
-        _log("✗", "偵測到標記但 IK 無法到達目標位置")
-        return _fail("pickup_med", "pickup_failed",
-                      f"偵測到藥物標記但機械臂無法到達 (IK failed): {e}",
-                      f"✗ 偵測到標記但 IK 無法到達: {state['medication_name']}")
+    _visual_precheck_for_pickup(state)
+
+    if os.environ.get("DRY_RUN", "").lower() in ("1", "true", "yes", "on"):
+        _log("·", "[DRY_RUN] would grasp_skill('medicine')")
+        success = True
+    else:
+        try:
+            success = grasp_skill("medicine")
+        except TypeError as e:
+            # IK solver returns None when it can't reach the target pose
+            _log("✗", "偵測到標記但 IK 無法到達目標位置")
+            return _fail("pickup_med", "pickup_failed",
+                          f"偵測到藥物標記但機械臂無法到達 (IK failed): {e}",
+                          f"✗ 偵測到標記但 IK 無法到達: {state['medication_name']}")
 
     if not success:
         _log("✗", "藥物抓取失敗")

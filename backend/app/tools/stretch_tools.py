@@ -89,19 +89,28 @@ _DELIVERY_AGENT_WORKFLOW_ID = "medication_delivery"
 
 SERVER_IP = os.getenv("ROBOT_IP", "localhost")
 
+# Camera-port reality post-FUNMAP (verified 2026-06-01 — see CONTEXT.md):
+#   arducam 6000 = the LIVE head camera. Multipart ZMQ, raw frames (this is what
+#                  yolo_world_node decodes via recv_multipart).
+#   d405    6002 = the LIVE wrist/gripper camera (RGB+depth).
+#   d435if  6001 = DEAD. Decommissioned head depth-cam; nothing publishes here.
+#   head_color 6011 / head_depth 6010 = DELETED by the FUNMAP migration (6010-6013
+#                  are gone). The single-part-msgpack-JPEG capture path below
+#                  (_capture_head_frame) still points here and is therefore BROKEN
+#                  until repointed to arducam 6000 — note: 6000 has a DIFFERENT wire
+#                  format (multipart raw, not single-part JPEG), so this is a decode
+#                  rewrite, not a port swap. Tracked in docs/simplification-plan.md
+#                  (perception consolidation / cut 6). Keys kept (not deleted) so
+#                  existing readers don't KeyError before the rewrite lands.
 _DEFAULT_PORTS = {
     "status": 5555,
     "command": 5556,
     "goto": 5557,
     "arducam": 6000,
-    "d435if": 6001,
+    "d435if": 6001,        # DEAD — see note above
     "d405": 6002,
-    # Head (top) camera: an independent publisher with its own wire format —
-    # single-part msgpack {ts_ns, h, w, encoding, data}. Color is JPEG bytes
-    # (encoding="rgb8" describes the *source*, not the bytes), depth is raw
-    # 16UC1. Distinct from the multi-part 6001 stream above.
-    "head_color": 6011,
-    "head_depth": 6010,
+    "head_color": 6011,    # DELETED (FUNMAP) — readers broken, see note above
+    "head_depth": 6010,    # DELETED (FUNMAP)
     "tts": 6101,
     "tts_status": 6102,
     "asr": 6103,
@@ -246,12 +255,23 @@ def _recv_fresh(socket: zmq.Socket, max_age_ns: int) -> tuple[int, bytes]:
 
 # These match the cure skill APIs verbatim (same names, signatures, return
 # types). medication_delivery.py imports them under the original names.
+#
+# DRY_RUN=1 short-circuits each skill so the LangGraph DAG can be exercised
+# end-to-end without a live robot. Mirrors the same env knob the @tool
+# wrappers below already honor (see _dry_run() at the bottom of this file).
+
+
+def _dry_run_env() -> bool:
+    return os.environ.get("DRY_RUN", "").lower() in ("1", "true", "yes", "on")
 
 
 def speak_skill(text: str) -> Optional[str]:
     """Submit text to TTS. Returns the job_id, or None if text is empty."""
     if not text:
         return None
+    if _dry_run_env():
+        logger.info("[DRY_RUN] would speak_skill(%r)", text[:80])
+        return "dry-run-job"
     cfg = get_config()
     sock = _connect_req(f"tcp://{SERVER_IP}:{cfg.ports['tts']}")
     try:
@@ -263,6 +283,8 @@ def speak_skill(text: str) -> Optional[str]:
 
 def wait_for_speech_completion(job_id: str, timeout_s: float) -> bool:
     """Block until the TTS job finishes (or timeout). True on success."""
+    if _dry_run_env() or job_id == "dry-run-job":
+        return True
     cfg = get_config()
     sock = _connect_sub(
         f"tcp://{SERVER_IP}:{cfg.ports['tts_status']}",
@@ -296,6 +318,10 @@ def wait_for_speech_completion(job_id: str, timeout_s: float) -> bool:
 
 def listen_skill() -> str:
     """Block on ASR until a transcript is returned. Empty string on silence."""
+    if _dry_run_env():
+        transcript = os.environ.get("DRY_RUN_TRANSCRIPT", "好的，我是病患")
+        logger.info("[DRY_RUN] would listen_skill() → %r", transcript)
+        return transcript
     cfg = get_config()
     sock = _connect_req(f"tcp://{SERVER_IP}:{cfg.ports['asr']}")
     try:
@@ -309,8 +335,8 @@ def navigate_skill(x: float, y: float, theta: float) -> None:
     """Drive the base to an absolute (x, y, theta) pose.
 
     Sends a single msgpack {"x", "y", "theta"} goal to the on-robot goto
-    service (port `goto`), which proxies to the lab nav_service and plans
-    via Nav2's `BasicNavigator.goToPose()`. Blocks until the server replies
+    service (port `goto`), which plans on the robot via FUNMAP/Nav2. Blocks
+    until the server replies
     "ok"; raises RuntimeError with the server's status string on any other
     reply (e.g. "no_path: ...", "timeout: ...", "obstructed: ...").
 
@@ -320,6 +346,10 @@ def navigate_skill(x: float, y: float, theta: float) -> None:
     Callers that want to navigate by name should resolve coordinates with
     `get_workflow_location()` first, then pass them here.
     """
+    if _dry_run_env():
+        logger.info("[DRY_RUN] would navigate_skill(x=%.3f, y=%.3f, theta=%.3f)",
+                    x, y, theta)
+        return
     cfg = get_config()
     goto_sock = _connect_req(f"tcp://{SERVER_IP}:{cfg.ports['goto']}")
     try:
@@ -476,6 +506,9 @@ def handover_skill() -> None:
     Mirrors cure.skills.handover.handover_skill exactly: same 10-DOF
     targets, same order.
     """
+    if _dry_run_env():
+        logger.info("[DRY_RUN] would handover_skill()")
+        return
     cfg = get_config()
     h = cfg.handover
     g_open = cfg.gripper["open"]
@@ -1205,10 +1238,12 @@ def _capture_head_frame(timeout_s: float = 5.0) -> tuple[np.ndarray, int]:
                 f"cv2 could not decode head camera buffer "
                 f"(encoding={msg.get('encoding')!r}, {len(data)} bytes)"
             )
-        # The d435if is physically mounted rotated 90° CW on the Stretch head,
-        # so the publisher's raw frames come out sideways. Rotate CCW here so
-        # disk dumps and VLM input are right-side-up.
-        frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        # The d435if is mounted 90° rotated on the Stretch head, so the
+        # publisher's raw frames come out sideways. Match the dashboard's
+        # frontend rotation (CW 90°) so VLM input and on-disk dumps are
+        # right-side-up — and so bbox coords from the VLM share a
+        # coordinate frame with the live dashboard canvas overlay.
+        frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
         return frame, ts_ns
     finally:
         sock.close()

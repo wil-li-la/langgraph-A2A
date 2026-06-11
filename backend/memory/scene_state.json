@@ -1,0 +1,931 @@
+{
+  "scenes": [
+    {
+      "ts": "2026-05-25T06:59:23+00:00",
+      "location": "lab",
+      "camera": "head",
+      "query": "any bottle, chair, person, monitor, or piece of furniture",
+      "image_path": "/tmp/robot_screenshots/detect_head_1779692352370617973.jpg",
+      "detections": []
+    },
+    {
+      "ts": "2026-05-25T07:01:29+00:00",
+      "location": "lab",
+      "camera": "head",
+      "query": "any visible object in the scene (chair, table, door, light fixture, person, wall, floor, ceiling, etc.)",
+      "image_path": "/tmp/robot_screenshots/detect_head_1779692472159250929.jpg",
+      "detections": [
+        {
+          "label": "chair",
+          "bbox_2d": [
+            55.0,
+            335.0,
+            103.0,
+            420.0
+          ],
+          "confidence": 0.8,
+          "description": "black chair with a white cushion"
+        },
+        {
+          "label": "chair",
+          "bbox_2d": [
+            201.0,
+            341.0,
+            270.0,
+            533.0
+          ],
+          "confidence": 0.7,
+          "description": "white chair with a gray cushion"
+        },
+        {
+          "label": "table",
+          "bbox_2d": [
+            0.0,
+            315.0,
+            158.0,
+            330.0
+          ],
+          "confidence": 0.9,
+          "description": "long table with a white surface"
+        },
+        {
+          "label": "light fixture",
+          "bbox_2d": [
+            215.0,
+            0.0,
+            233.0,
+            20.0
+          ],
+          "confidence": 0.8,
+          "description": "ceiling light fixture with a bright light"
+        },
+        {
+          "label": "light fixture",
+          "bbox_2d": [
+            215.0,
+            84.0,
+            231.0,
+            100.0
+          ],
+          "confidence": 0.7,
+          "description": "ceiling light fixture with a bright light"
+        },
+        {
+          "label": "light fixture",
+          "bbox_2d": [
+            215.0,
+            115.0,
+            230.0,
+            131.0
+          ],
+          "confidence": 0.6,
+          "description": "ceiling light fixture with a bright light"
+        },
+        {
+          "label": "light fixture",
+          "bbox_2d": [
+            215.0,
+            145.0,
+            230.0,
+            161.0
+          ],
+          "confidence": 0.5,
+          "description": "ceiling light fixture with a bright light"
+        },
+        {
+          "label": "light fixture",
+          "bbox_2d": [
+            215.0,
+            168.0,
+            230.0,
+            184.0
+          ],
+          "confidence": 0.4,
+          "description": "ceiling light fixture with a bright light"
+        },
+        {
+          "label": "light fixture",
+          "bbox_2d": [
+            215.0,
+            188.0,
+            230.0,
+            204.0
+          ],
+          "confidence": 0.3,
+          "description": "ceiling light fixture with a bright light"
+        },
+        {
+          "label": "light fixture",
+          "bbox_2d": [
+            215.0,
+            208.0,
+            230.0,
+            224.0
+          ],
+          "confidence": 0.2,
+          "description": "ceiling light fixture with a bright light"
+        },
+        {
+          "label": "light fixture",
+          "bbox_2d": [
+            215.0,
+            230.0,
+            230.0,
+            246.0
+          ],
+          "confidence": 0.1,
+          "description": "ceiling light fixture with a bright light"
+        },
+        {
+          "label": "person",
+          "bbox_2d": [
+            25.0,
+            275.0,
+            68.0,
+            323.0
+          ],
+          "confidence": 0.9,
+          "description": "person sitting at a table"
+        },
+        {
+          "label": "wall",
+          "bbox_2d": [
+            0.0,
+            188.0,
+            158.0,
+            385.0
+          ],
+          "confidence": 0.8,
+          "description": "green wall with a white countertop"
+        },
+        {
+          "label": "wall",
+          "bbox_2d": [
+            270.0,
+            0.0,
+            476.0,
+            640.0
+          ],
+          "confidence": 0.7,
+          "description": "white wall with a green accent wall"
+        },
+        {
+          "label": "floor",
+          "bbox_2d": [
+            0.0,
+            385.0,
+            476.0,
+            640.0
+          ],
+          "confidence": 0.9,
+          "description": "white floor with a glossy finish"
+        },
+        {
+          "label": "ceiling",
+          "bbox_2d": [
+            0.0,
+            0.0,
+            476.0,
+            210.0
+          ],
+          "confidence": 0.8,
+          "description": "ceiling with recessed lighting and a skylight"
+        }
+      ]
+    },
+    {
+      "ts": "2026-05-25T07:04:03+00:00",
+      "location": "unknown",
+      "camera": "head",
+      "query": "chair, table, person",
+      "image_path": "/tmp/robot_screenshots/detect_head_1779692631940081122.jpg",
+      "detections": [
+        {
+          "label": "chair",
+          "bbox_2d": [
+            199.0,
+            332.0,
+            270.0,
+            535.0
+          ],
+          "confidence": 0.8,
+          "description": "a white chair with a curved backrest"
+        },
+        {
+          "label": "table",
+          "bbox_2d": [
+            0.0,
+            312.0,
+            158.0,
+            448.0
+          ],
+          "confidence": 0.7,
+          "description": "a table with a person sitting at it"
+        },
+        {
+          "label": "person",
+          "bbox_2d": [
+            38.0,
+            273.0,
+            67.0,
+            323.0
+          ],
+          "confidence": 0.6,
+          "description": "a person sitting at a table with a computer"
+        }
+      ]
+    },
+    {
+      "ts": "2026-05-25T07:04:19+00:00",
+      "location": "lab",
+      "camera": "head",
+      "query": "chair, table, person, light fixture, monitor, keyboard, door",
+      "image_path": "/tmp/robot_screenshots/detect_head_1779692651992221575.jpg",
+      "detections": [
+        {
+          "label": "chair",
+          "bbox_2d": [
+            201.0,
+            332.0,
+            270.0,
+            536.0
+          ],
+          "confidence": 0.8,
+          "description": "a chair with a white seat and backrest"
+        },
+        {
+          "label": "table",
+          "bbox_2d": [
+            0.0,
+            317.0,
+            155.0,
+            330.0
+          ],
+          "confidence": 0.7,
+          "description": "a table with a white surface"
+        },
+        {
+          "label": "person",
+          "bbox_2d": [
+            38.0,
+            275.0,
+            71.0,
+            324.0
+          ],
+          "confidence": 0.6,
+          "description": "a person sitting at a table"
+        },
+        {
+          "label": "light fixture",
+          "bbox_2d": [
+            215.0,
+            1.0,
+            233.0,
+            20.0
+          ],
+          "confidence": 0.8,
+          "description": "a light fixture on the ceiling"
+        },
+        {
+          "label": "monitor",
+          "bbox_2d": [
+            0.0,
+            275.0,
+            45.0,
+            295.0
+          ],
+          "confidence": 0.7,
+          "description": "a monitor on the table"
+        },
+        {
+          "label": "keyboard",
+          "bbox_2d": [
+            30.0,
+            310.0,
+            47.0,
+            318.0
+          ],
+          "confidence": 0.6,
+          "description": "a keyboard on the table"
+        },
+        {
+          "label": "door",
+          "bbox_2d": [
+            168.0,
+            225.0,
+            225.0,
+            353.0
+          ],
+          "confidence": 0.7,
+          "description": "a door in the background"
+        }
+      ]
+    },
+    {
+      "ts": "2026-05-25T07:08:37+00:00",
+      "location": "lab",
+      "camera": "head",
+      "query": "chair, table, person, monitor, keyboard, light fixture, door",
+      "image_path": "/tmp/robot_screenshots/detect_head_1779692909177468881.jpg",
+      "detections": [
+        {
+          "label": "chair",
+          "bbox_2d": [
+            201.0,
+            339.0,
+            344.0,
+            533.0
+          ],
+          "confidence": 0.8,
+          "description": "a white chair with a curved backrest"
+        },
+        {
+          "label": "table",
+          "bbox_2d": [
+            0.0,
+            315.0,
+            158.0,
+            450.0
+          ],
+          "confidence": 0.7,
+          "description": "a table with a dark surface and a chair next to it"
+        },
+        {
+          "label": "person",
+          "bbox_2d": [
+            45.0,
+            288.0,
+            70.0,
+            324.0
+          ],
+          "confidence": 0.6,
+          "description": "a person sitting at the table"
+        },
+        {
+          "label": "monitor",
+          "bbox_2d": [
+            0.0,
+            274.0,
+            50.0,
+            294.0
+          ],
+          "confidence": 0.8,
+          "description": "a black monitor on the table"
+        },
+        {
+          "label": "keyboard",
+          "bbox_2d": [
+            45.0,
+            315.0,
+            70.0,
+            324.0
+          ],
+          "confidence": 0.7,
+          "description": "a keyboard on the table"
+        },
+        {
+          "label": "light fixture",
+          "bbox_2d": [
+            215.0,
+            0.0,
+            233.0,
+            20.0
+          ],
+          "confidence": 0.9,
+          "description": "a light fixture on the ceiling"
+        },
+        {
+          "label": "door",
+          "bbox_2d": [
+            168.0,
+            220.0,
+            225.0,
+            354.0
+          ],
+          "confidence": 0.8,
+          "description": "a door with a handle on the wall"
+        }
+      ]
+    },
+    {
+      "ts": "2026-05-25T07:08:39+00:00",
+      "location": "lab",
+      "camera": "arm",
+      "query": "anything in front of the gripper — hand, object, surface, floor, or empty workspace",
+      "image_path": "/tmp/robot_screenshots/detect_arm_1779692917744166930.jpg",
+      "detections": [
+        {
+          "label": "object",
+          "bbox_2d": [
+            190.0,
+            315.0,
+            270.0,
+            388.0
+          ],
+          "confidence": 0.8,
+          "description": "A QR code sticker is in front of the gripper."
+        }
+      ]
+    }
+  ],
+  "objects": {
+    "chair": [
+      {
+        "ts": "2026-05-25T07:01:29+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          55.0,
+          335.0,
+          103.0,
+          420.0
+        ],
+        "confidence": 0.8,
+        "description": "black chair with a white cushion",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692472159250929.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:01:29+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          201.0,
+          341.0,
+          270.0,
+          533.0
+        ],
+        "confidence": 0.7,
+        "description": "white chair with a gray cushion",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692472159250929.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:04:03+00:00",
+        "location": "unknown",
+        "camera": "head",
+        "bbox_2d": [
+          199.0,
+          332.0,
+          270.0,
+          535.0
+        ],
+        "confidence": 0.8,
+        "description": "a white chair with a curved backrest",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692631940081122.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:04:19+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          201.0,
+          332.0,
+          270.0,
+          536.0
+        ],
+        "confidence": 0.8,
+        "description": "a chair with a white seat and backrest",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692651992221575.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:08:37+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          201.0,
+          339.0,
+          344.0,
+          533.0
+        ],
+        "confidence": 0.8,
+        "description": "a white chair with a curved backrest",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692909177468881.jpg"
+      }
+    ],
+    "table": [
+      {
+        "ts": "2026-05-25T07:01:29+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          0.0,
+          315.0,
+          158.0,
+          330.0
+        ],
+        "confidence": 0.9,
+        "description": "long table with a white surface",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692472159250929.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:04:03+00:00",
+        "location": "unknown",
+        "camera": "head",
+        "bbox_2d": [
+          0.0,
+          312.0,
+          158.0,
+          448.0
+        ],
+        "confidence": 0.7,
+        "description": "a table with a person sitting at it",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692631940081122.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:04:19+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          0.0,
+          317.0,
+          155.0,
+          330.0
+        ],
+        "confidence": 0.7,
+        "description": "a table with a white surface",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692651992221575.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:08:37+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          0.0,
+          315.0,
+          158.0,
+          450.0
+        ],
+        "confidence": 0.7,
+        "description": "a table with a dark surface and a chair next to it",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692909177468881.jpg"
+      }
+    ],
+    "light fixture": [
+      {
+        "ts": "2026-05-25T07:01:29+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          215.0,
+          0.0,
+          233.0,
+          20.0
+        ],
+        "confidence": 0.8,
+        "description": "ceiling light fixture with a bright light",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692472159250929.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:01:29+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          215.0,
+          84.0,
+          231.0,
+          100.0
+        ],
+        "confidence": 0.7,
+        "description": "ceiling light fixture with a bright light",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692472159250929.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:01:29+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          215.0,
+          115.0,
+          230.0,
+          131.0
+        ],
+        "confidence": 0.6,
+        "description": "ceiling light fixture with a bright light",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692472159250929.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:01:29+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          215.0,
+          145.0,
+          230.0,
+          161.0
+        ],
+        "confidence": 0.5,
+        "description": "ceiling light fixture with a bright light",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692472159250929.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:01:29+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          215.0,
+          168.0,
+          230.0,
+          184.0
+        ],
+        "confidence": 0.4,
+        "description": "ceiling light fixture with a bright light",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692472159250929.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:01:29+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          215.0,
+          188.0,
+          230.0,
+          204.0
+        ],
+        "confidence": 0.3,
+        "description": "ceiling light fixture with a bright light",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692472159250929.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:01:29+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          215.0,
+          208.0,
+          230.0,
+          224.0
+        ],
+        "confidence": 0.2,
+        "description": "ceiling light fixture with a bright light",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692472159250929.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:01:29+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          215.0,
+          230.0,
+          230.0,
+          246.0
+        ],
+        "confidence": 0.1,
+        "description": "ceiling light fixture with a bright light",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692472159250929.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:04:19+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          215.0,
+          1.0,
+          233.0,
+          20.0
+        ],
+        "confidence": 0.8,
+        "description": "a light fixture on the ceiling",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692651992221575.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:08:37+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          215.0,
+          0.0,
+          233.0,
+          20.0
+        ],
+        "confidence": 0.9,
+        "description": "a light fixture on the ceiling",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692909177468881.jpg"
+      }
+    ],
+    "person": [
+      {
+        "ts": "2026-05-25T07:01:29+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          25.0,
+          275.0,
+          68.0,
+          323.0
+        ],
+        "confidence": 0.9,
+        "description": "person sitting at a table",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692472159250929.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:04:03+00:00",
+        "location": "unknown",
+        "camera": "head",
+        "bbox_2d": [
+          38.0,
+          273.0,
+          67.0,
+          323.0
+        ],
+        "confidence": 0.6,
+        "description": "a person sitting at a table with a computer",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692631940081122.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:04:19+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          38.0,
+          275.0,
+          71.0,
+          324.0
+        ],
+        "confidence": 0.6,
+        "description": "a person sitting at a table",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692651992221575.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:08:37+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          45.0,
+          288.0,
+          70.0,
+          324.0
+        ],
+        "confidence": 0.6,
+        "description": "a person sitting at the table",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692909177468881.jpg"
+      }
+    ],
+    "wall": [
+      {
+        "ts": "2026-05-25T07:01:29+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          0.0,
+          188.0,
+          158.0,
+          385.0
+        ],
+        "confidence": 0.8,
+        "description": "green wall with a white countertop",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692472159250929.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:01:29+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          270.0,
+          0.0,
+          476.0,
+          640.0
+        ],
+        "confidence": 0.7,
+        "description": "white wall with a green accent wall",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692472159250929.jpg"
+      }
+    ],
+    "floor": [
+      {
+        "ts": "2026-05-25T07:01:29+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          0.0,
+          385.0,
+          476.0,
+          640.0
+        ],
+        "confidence": 0.9,
+        "description": "white floor with a glossy finish",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692472159250929.jpg"
+      }
+    ],
+    "ceiling": [
+      {
+        "ts": "2026-05-25T07:01:29+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          0.0,
+          0.0,
+          476.0,
+          210.0
+        ],
+        "confidence": 0.8,
+        "description": "ceiling with recessed lighting and a skylight",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692472159250929.jpg"
+      }
+    ],
+    "monitor": [
+      {
+        "ts": "2026-05-25T07:04:19+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          0.0,
+          275.0,
+          45.0,
+          295.0
+        ],
+        "confidence": 0.7,
+        "description": "a monitor on the table",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692651992221575.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:08:37+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          0.0,
+          274.0,
+          50.0,
+          294.0
+        ],
+        "confidence": 0.8,
+        "description": "a black monitor on the table",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692909177468881.jpg"
+      }
+    ],
+    "keyboard": [
+      {
+        "ts": "2026-05-25T07:04:19+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          30.0,
+          310.0,
+          47.0,
+          318.0
+        ],
+        "confidence": 0.6,
+        "description": "a keyboard on the table",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692651992221575.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:08:37+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          45.0,
+          315.0,
+          70.0,
+          324.0
+        ],
+        "confidence": 0.7,
+        "description": "a keyboard on the table",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692909177468881.jpg"
+      }
+    ],
+    "door": [
+      {
+        "ts": "2026-05-25T07:04:19+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          168.0,
+          225.0,
+          225.0,
+          353.0
+        ],
+        "confidence": 0.7,
+        "description": "a door in the background",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692651992221575.jpg"
+      },
+      {
+        "ts": "2026-05-25T07:08:37+00:00",
+        "location": "lab",
+        "camera": "head",
+        "bbox_2d": [
+          168.0,
+          220.0,
+          225.0,
+          354.0
+        ],
+        "confidence": 0.8,
+        "description": "a door with a handle on the wall",
+        "image_path": "/tmp/robot_screenshots/detect_head_1779692909177468881.jpg"
+      }
+    ],
+    "object": [
+      {
+        "ts": "2026-05-25T07:08:39+00:00",
+        "location": "lab",
+        "camera": "arm",
+        "bbox_2d": [
+          190.0,
+          315.0,
+          270.0,
+          388.0
+        ],
+        "confidence": 0.8,
+        "description": "A QR code sticker is in front of the gripper.",
+        "image_path": "/tmp/robot_screenshots/detect_arm_1779692917744166930.jpg"
+      }
+    ]
+  }
+}

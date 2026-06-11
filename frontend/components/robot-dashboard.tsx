@@ -51,6 +51,7 @@ export function RobotDashboard() {
   const [highlightInstructionTick, setHighlightInstructionTick] = useState(0)
 
   const logContainerRef = useRef<HTMLDivElement>(null)
+  const voiceInputRef = useRef<HTMLDivElement>(null)
 
   // Active log: scripted mode reads workflow log, agentic mode reads agent log.
   const activeLog = mode === "agentic" ? agentCtx.log : executionLog
@@ -61,9 +62,34 @@ export function RobotDashboard() {
     }
   }, [activeLog])
 
+  // When the workflow blocks on operator input, the Voice Input panel
+  // is often off-screen (bottom of right column). Scroll it into view
+  // and pulse the dashboard so the operator notices.
+  useEffect(() => {
+    if (!awaitingInput) return
+    voiceInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+  }, [awaitingInput])
+
   return (
     <div className="flex min-h-dvh flex-col bg-background lg:h-dvh lg:overflow-hidden">
       <NavBar workflowState={workflowState} />
+      {awaitingInput && (
+        <div className="shrink-0 border-y border-sky-500/40 bg-sky-500/10 px-4 py-2 flex items-center gap-3 animate-pulse">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400/60" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-sky-400" />
+          </span>
+          <span className="font-mono text-sm font-medium text-sky-300">
+            🎤 Workflow awaiting your response:
+          </span>
+          <span className="font-mono text-sm text-foreground truncate">
+            「{inputPrompt}」
+          </span>
+          <span className="ml-auto font-mono text-xs text-sky-300/80">
+            → VOICE INPUT panel below
+          </span>
+        </div>
+      )}
       <div className="flex flex-1 min-h-0 flex-col gap-2 p-2 lg:flex-row lg:gap-3 lg:p-3">
         {/* Left column: main visualization (scripted graph OR agent timeline) + Video */}
         <div className="flex flex-1 flex-col gap-3 min-h-0 min-w-0">
@@ -155,8 +181,8 @@ export function RobotDashboard() {
             )}
           </div>
 
-          {/* Video & Map (shared by both modes) */}
-          <div className="shrink-0 h-[240px] sm:h-[300px] lg:h-[300px] xl:h-[340px] 2xl:h-[370px] rounded-md border border-border bg-card p-3">
+          {/* Video (shared by both modes) */}
+          <div className="shrink-0 h-[320px] sm:h-[400px] lg:h-[420px] xl:h-[480px] 2xl:h-[540px] rounded-md border border-border bg-card p-3">
             <VideoPanel />
           </div>
         </div>
@@ -192,9 +218,12 @@ export function RobotDashboard() {
               )}
 
               {/* Voice Input */}
-              <div className={`rounded-md border bg-card p-3 shrink-0 transition-colors ${
-                awaitingInput ? "border-sky-500/50" : "border-border"
-              }`}>
+              <div
+                ref={voiceInputRef}
+                className={`rounded-md border bg-card p-3 shrink-0 transition-colors ${
+                  awaitingInput ? "border-sky-500/50 ring-2 ring-sky-500/30" : "border-border"
+                }`}
+              >
                 <VoiceInput
                   onResult={(text) => {
                     if (awaitingInput) {

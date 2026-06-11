@@ -190,17 +190,3 @@ async def stream_d405_mix(request: Request) -> StreamingResponse:
     cfg = get_config()
     return StreamingResponse(mix_mjpeg_generator(cfg.ports["d405"]), media_type="multipart/x-mixed-replace; boundary=frame")
 
-async def stream_d435if_rgb(request: Request) -> StreamingResponse:
-    """GET /api/stream/d435if/rgb"""
-    cfg = get_config()
-    return StreamingResponse(mjpeg_generator(cfg.ports["d435if"], "rgb"), media_type="multipart/x-mixed-replace; boundary=frame")
-
-async def stream_d435if_depth(request: Request) -> StreamingResponse:
-    """GET /api/stream/d435if/depth"""
-    cfg = get_config()
-    return StreamingResponse(mjpeg_generator(cfg.ports["d435if"], "depth"), media_type="multipart/x-mixed-replace; boundary=frame")
-
-async def stream_d435if_mix(request: Request) -> StreamingResponse:
-    """GET /api/stream/d435if/mix"""
-    cfg = get_config()
-    return StreamingResponse(mix_mjpeg_generator(cfg.ports["d435if"]), media_type="multipart/x-mixed-replace; boundary=frame")
